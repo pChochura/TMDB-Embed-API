@@ -1,0 +1,32 @@
+# Your Tenancy OCID (found in Profile -> Tenancy)
+tenancy_ocid = "ocid1.tenancy.oc1..aaaaaaa..."
+
+# Your User OCID (found in Profile -> User Settings)
+user_ocid = "ocid1.user.oc1..aaaaaaa..."
+
+# Fingerprint of your OCI API key (shown after adding key to User Settings)
+fingerprint = "aa:bb:cc:dd:ee:..."
+
+# Path to the private key downloaded/generated for OCI API
+private_key_path = "~/.oci/oci_api_key.pem"
+
+# Your OCI home region (e.g. eu-frankfurt-1, us-ashburn-1, etc.)
+region = "eu-frankfurt-1"
+
+# (Optional) Compartment OCID if you created a dedicated compartment; leave null for root
+compartment_ocid = null
+
+# Your TMDB API key
+tmdb_api_key = "your_tmdb_api_key_here"
+
+# Path to your SSH public key for logging into the server
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Choose shape:
+# ARM Always Free (Recommended: up to 4 cores, 24 GB RAM free):
+instance_shape         = "VM.Standard.A1.Flex"
+instance_ocpus         = 2
+instance_memory_in_gbs = 12
+
+# Or AMD Always Free (fallback if ARM has no capacity in your region):
+# instance_shape = "VM.Standard.E2.1.Micro"
