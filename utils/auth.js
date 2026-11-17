@@ -5,6 +5,14 @@ const crypto = require('crypto');
 // Path for auth users file
 const AUTH_FILE = path.join(process.cwd(), 'utils/auth-users.json');
 
+const envPasswordConfigured = Object.prototype.hasOwnProperty.call(process.env, 'ADMIN_PASSWORD');
+if (envPasswordConfigured && process.env.ADMIN_PASSWORD.length < 8) {
+  throw new Error('ADMIN_PASSWORD must contain at least 8 characters');
+}
+const envAdmin = envPasswordConfigured
+  ? { username: 'admin', hash: hashPassword(process.env.ADMIN_PASSWORD).hash }
+  : null;
+
 // In-memory cache
 let usersCache = null;
 let lastLoaded = 0;
@@ -23,6 +31,7 @@ function ensureAuthFile() {
 }
 
 function loadUsers(force=false){
+  if (envAdmin) return [envAdmin];
   if (!force && usersCache && (Date.now() - lastLoaded) < LOAD_INTERVAL_MS) return usersCache;
   ensureAuthFile();
   try {
@@ -55,6 +64,7 @@ function findUser(username){
 }
 
 function updatePassword(username, newPassword){
+  if (envAdmin) return false;
   const users = loadUsers(true);
   const u = users.find(x => x.username === username);
   if (!u) return false;
@@ -133,5 +143,6 @@ module.exports = {
   requireAuth,
   getSession,
   updatePassword,
-  AUTH_FILE
+  AUTH_FILE,
+  envPasswordConfigured
 };

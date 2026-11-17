@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: tmdb-embed-api
+    runtime: docker
+    plan: free
+    branch: main
+    autoDeployTrigger: "off"
+    healthCheckPath: /api/health
+    envVars:
+      - key: API_PORT
+        value: "10000"
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: TMDB_API_KEY
+        sync: false

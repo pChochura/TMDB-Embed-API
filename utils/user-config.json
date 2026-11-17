@@ -4,7 +4,7 @@
   "tmdbApiKeys": [],
   "enableShowboxProvider": true,
   "febboxCookies": [],
-  "enable4khdhubProvider": true,
+  "enable4khdhubProvider": false,
   "enableVixsrcProvider": true,
   "enableProxy": false,
   "disableCache": false,
@@ -19,5 +19,7 @@
   "enableLordflixProvider": false,
   "enableNotorrentProvider": false,
   "enableDahmermoviesProvider": true,
-  "port": 8787
+  "port": 8787,
+  "enableHexaProvider": true,
+  "enableCinezoProvider": true
 }

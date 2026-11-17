@@ -123,6 +123,45 @@ docker run --name tmdb-embed -p 8787:8787 \
 
 After first login + save, the UI writes overrides into the mounted `user-config.json` so they persist across container restarts.
 
+### Free Render deployment
+
+The included [Render Blueprint](./render.yaml) creates a free Docker web service
+and disables Render's automatic deployments so that GitHub Actions controls
+deployments instead.
+
+1. Push this repository, including `render.yaml` and the deploy workflow, to
+   the GitHub repository's `main` branch.
+2. In [Render](https://dashboard.render.com/), create a **Blueprint** and
+   connect that repository. Confirm the free instance and provide a TMDB API
+   key when prompted. The first deployment is started by Render.
+3. In the service's **Environment** settings, reveal the generated
+   `ADMIN_PASSWORD`. Sign in as `admin` with that value. To change it, update
+   the environment variable in Render; password changes in the UI are disabled
+   while this variable is set. Never commit or share the password.
+4. Copy the secret **Deploy Hook** from the service's **Settings** tab. In the
+   GitHub repository, open **Settings → Secrets and variables → Actions** and
+   add it as the repository secret `RENDER_DEPLOY_HOOK_URL`.
+5. Subsequent pushes to `main` run [Deploy to Render](./.github/workflows/deploy-render.yml).
+   The workflow runs deployment authentication tests, then triggers the hook.
+   The GitHub job confirms that Render accepted the request; check the Render
+   dashboard for the actual build, deployment and health status. You can also
+   run the workflow manually from the Actions tab.
+
+Render's free service spins down after 15 minutes without traffic, takes about
+one minute to wake, and has an ephemeral filesystem. Dashboard configuration,
+passwords changed without `ADMIN_PASSWORD`, caches, and sessions are lost on
+restart, redeploy or spin-down. Configure persistent settings using Render
+environment variables instead. The free instance has limited CPU and 512 MB
+RAM; the browser-backed providers are disabled by default and may exceed those
+resources. Render's free usage limits include outbound bandwidth and build
+minutes; check [Render's free-tier terms](https://render.com/docs/free) for
+current limits and possible overage charges.
+
+The streaming endpoints are public. Keep `ENABLE_PROXY` disabled on an
+internet-facing deployment unless access to the proxy endpoints is separately
+restricted: they accept arbitrary target URLs. The config and debug endpoints
+require an authenticated admin session.
+
 ### docker-compose
 An example `docker-compose.yml` is included (healthcheck + `restart: unless-stopped`). Start with:
 ```bash
@@ -154,6 +193,7 @@ If both `TMDB_API_KEY` and `TMDB_API_KEYS` are provided, rotation uses the array
 |----------|---------|-------|
 | `API_PORT` | Port the server listens on | Defaults to `8787` |
 | `BIND_HOST` | Interface to bind | Defaults to `0.0.0.0` |
+| `ADMIN_PASSWORD` | Admin password managed by the environment | At least 8 characters; disables UI password changes |
 | `TMDB_API_KEY` | Single TMDB key (legacy) | Use if you only have one key |
 | `TMDB_API_KEYS` | JSON array of keys | Overrides single key when present |
 | `DEFAULT_PROVIDERS` | Comma-separated default providers | Used by the aggregate endpoint |
@@ -338,8 +378,8 @@ The system automatically:
 | `GET /api/providers/:name` | Single provider status |
 | `GET /api/streams/:type/:tmdbId` | Aggregate streams (`type` = movie\|series; supports `?season=&episode=`) |
 | `GET /api/streams/:provider/:type/:tmdbId` | Provider-specific streams (same query params) |
-| `GET /api/config` | `{ merged, override, overridePath }` |
-| `POST /api/config` | Apply override patch (persisted to `utils/user-config.json`) |
+| `GET /api/config` | `{ merged, override, overridePath }` (admin session required) |
+| `POST /api/config` | Apply override patch (admin session required; persisted to `utils/user-config.json`) |
 | `POST /api/restart` | Graceful restart (writes `restart.trigger` + exits) |
 | `GET /api/debug/env` | Debug environment/config snapshot |
 

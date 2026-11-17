@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const os = require('os');
 const { config, saveConfigPatch, OVERRIDE_PATH } = require('./utils/config');
-const { authenticate, issueSession, requireAuth, getSession, updatePassword } = require('./utils/auth');
+const { authenticate, issueSession, requireAuth, getSession, updatePassword, envPasswordConfigured } = require('./utils/auth');
 const path = require('path');
 const { listProviders, getProvider, getCookieStats } = require('./providers/registry');
 const { createProxyRoutes, processStreamsForProxy } = require('./proxy/proxyServer');
@@ -129,6 +129,7 @@ app.post('/auth/change-password', requireAuth, (req,res) => {
   if (!oldPassword || !newPassword) return res.status(400).json({ success:false, error:'MISSING_FIELDS' });
   const sess = req.session;
   if (!authenticate(sess.u, oldPassword)) return res.status(401).json({ success:false, error:'INVALID_OLD_PASSWORD' });
+  if (envPasswordConfigured) return res.status(409).json({ success:false, error:'PASSWORD_MANAGED_BY_ENVIRONMENT' });
   if (newPassword.length < 8) return res.status(400).json({ success:false, error:'PASSWORD_TOO_SHORT' });
   if (!updatePassword(sess.u, newPassword)) return res.status(500).json({ success:false, error:'UPDATE_FAILED' });
   res.json({ success:true, message:'PASSWORD_UPDATED' });
@@ -192,7 +193,7 @@ app.use((req,res,next)=>{ metrics.requestsTotal++; metrics.lastRequestAt = Date.
 app.use(express.static(path.join(process.cwd(),'public')));
 
 // Config API
-app.get('/api/config', (req,res) => {
+app.get('/api/config', requireAuth, (req,res) => {
   const fs = require('fs');
   let override = {};
   try { if (fs.existsSync(OVERRIDE_PATH)) override = JSON.parse(fs.readFileSync(OVERRIDE_PATH,'utf8')); } catch (e) {
@@ -200,7 +201,7 @@ app.get('/api/config', (req,res) => {
   }
   res.json({ success:true, merged: config, override, overridePath: OVERRIDE_PATH });
 });
-app.post('/api/config', (req,res) => {
+app.post('/api/config', requireAuth, (req,res) => {
   const patch = req.body || {};
   if (patch.port) {
     const p = Number(patch.port); if (!Number.isFinite(p) || p<=0 || p>65535) return res.status(400).json({ success:false, error:'INVALID_PORT'});
@@ -299,7 +300,7 @@ app.get('/api/providers', (req,res) => {
 });
 
 // Debug environment/config endpoint (do not expose publicly in production)
-app.get('/api/debug/env', (req,res) => {
+app.get('/api/debug/env', requireAuth, (req,res) => {
   const cookieStats = getCookieStats ? getCookieStats() : null;
   res.json({
     port: config.port,
