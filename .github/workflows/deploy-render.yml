@@ -25,8 +25,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Verify deployment authentication
-        run: node --test test/deployment.test.js
+      - name: Verify deployment authentication and streaming
+        run: node --test test/deployment.test.js test/streaming.test.js
       - name: Trigger Render deployment
         env:
           DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}

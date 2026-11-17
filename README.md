@@ -142,7 +142,7 @@ deployments instead.
    GitHub repository, open **Settings → Secrets and variables → Actions** and
    add it as the repository secret `RENDER_DEPLOY_HOOK_URL`.
 5. Subsequent pushes to `main` run [Deploy to Render](./.github/workflows/deploy-render.yml).
-   The workflow runs deployment authentication tests, then triggers the hook.
+   The workflow runs deployment authentication and streaming tests, then triggers the hook.
    The GitHub job confirms that Render accepted the request; check the Render
    dashboard for the actual build, deployment and health status. You can also
    run the workflow manually from the Actions tab.
@@ -391,6 +391,54 @@ Proxy routes (mounted only when `enableProxy` is on):
 | `GET /sub-proxy?url=...` | Subtitle passthrough proxy |
 
 The aggregate endpoint auto-resolves IMDb when needed, merges all enabled (or `defaultProviders`) provider output, then applies filtering. Provider timing is returned per provider (`providerTimings`).
+
+### Receive sources as providers finish
+
+Add `?stream=1` to the aggregate endpoint to receive **Server-Sent Events**
+instead of the usual JSON response. For series, include the existing season and
+episode parameters, e.g. `/api/streams/series/1399?season=1&episode=1&stream=1`.
+The original endpoint without `stream=1` remains unchanged.
+
+The server sends:
+
+- `start`: `{ tmdbId, imdbId }` after the IMDb lookup.
+- `provider`: `{ provider, success, durationMs, count, streams }` when an
+  enabled, selected provider finishes. Streams use the same filtering and
+  proxy settings as the aggregate JSON endpoint. A failed provider has
+  `success: false`, `durationMs: null`, and an empty stream array. Some
+  providers handle their own errors and return an empty array, which cannot be
+  distinguished from no results.
+- `complete`: `{ success: true, tmdbId, imdbId, count, providerTimings }` after
+  all selected providers finish. The count is the total streamed source count.
+- `error`: `{ success: false, error: "INTERNAL_ERROR" }` for a fatal server
+  error after the response begins.
+
+Each event carries a JSON object in its `data` field. A provider's results
+arrive as a batch; individual providers may still wait for all their own
+sources. Results can arrive in a different order than in the JSON response.
+Closing the connection stops events but does not cancel provider requests
+already in progress. Browsers automatically reconnect an `EventSource` after a
+disconnect, so close it on completion to avoid duplicate requests:
+
+```js
+const source = new EventSource('/api/streams/movie/278?stream=1');
+source.addEventListener('provider', event => {
+  const { provider, streams } = JSON.parse(event.data);
+  console.log(provider, streams);
+});
+source.addEventListener('complete', event => {
+  console.log('Finished:', JSON.parse(event.data));
+  source.close();
+});
+source.addEventListener('error', event => {
+  if (event.data) console.error('Server error:', JSON.parse(event.data));
+  else console.error('Connection interrupted');
+  source.close();
+});
+```
+
+Reverse proxies must allow streaming responses without buffering. Periodic
+comment frames keep idle connections open; proxies may still impose timeouts.
 
 ---
 

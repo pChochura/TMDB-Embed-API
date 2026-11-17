@@ -270,7 +270,7 @@ app.get('/api/status', (req,res) => {
     'GET /api/status',
     'GET /api/providers',
     'GET /api/providers/:name',
-    'GET /api/streams/:type/:tmdbId',
+    'GET /api/streams/:type/:tmdbId (optional ?stream=1)',
     'GET /api/streams/:provider/:type/:tmdbId',
     'POST /api/config',
     'GET /api/config'
@@ -325,42 +325,86 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
   if (!['movie','series'].includes(type)) return res.status(400).json({ success:false, error:'INVALID_TYPE' });
   const season = req.query.season ? Number(req.query.season) : null;
   const episode = req.query.episode ? Number(req.query.episode) : null;
+  const streaming = req.query.stream === '1';
+  let disconnected = false;
+  let heartbeat;
+  if (streaming) {
+    res.set({
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no'
+    });
+    res.flushHeaders();
+    res.on('close', () => { disconnected = true; clearInterval(heartbeat); });
+    heartbeat = setInterval(() => {
+      if (!disconnected) res.write(': keep-alive\n\n');
+    }, 15000);
+  }
+  const sendEvent = (event, data) => {
+    if (!disconnected && !res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const formatStreams = streams => {
+    let filtered = applyFilters(streams, 'aggregate', config.minQualities, config.excludeCodecs);
+    if (config.enableProxy) {
+      const serverUrl = `${req.protocol}://${req.get('host')}`;
+      filtered = processStreamsForProxy(filtered, serverUrl);
+      filtered = filtered.map(s => { if (s && typeof s === 'object') { const { headers, ...rest } = s; return rest; } return s; });
+    }
+    return filtered;
+  };
   try {
     metrics.streamRequests++;
     const tmdbType = type === 'movie' ? 'movie' : 'tv';
     const imdbId = await resolveImdbId(tmdbType, tmdbId); if (imdbId) metrics.tmdbToImdbLookups++;
+    if (disconnected) return;
     const selectedProviders = (config.defaultProviders.length ? config.defaultProviders : listProviders().map(p=>p.name));
     const providerTimings = {};
+    let streamedCount = 0;
+    if (streaming) sendEvent('start', { tmdbId, imdbId });
     const results = await Promise.all(selectedProviders.map(async name => {
       const prov = getProvider(name);
       if (!prov || !prov.enabled) return [];
       metrics.providerCalls[name] = (metrics.providerCalls[name]||0)+1;
+      let r;
       try {
         console.log(`[api] invoking provider ${name} for tmdbId=${tmdbId}`);
         const t0 = Date.now();
-        const r = await prov.fetch({ tmdbId, type, season, episode, imdbId, filters:{ } });
+        r = await prov.fetch({ tmdbId, type, season, episode, imdbId, filters:{ } });
         providerTimings[name] = Date.now()-t0;
         console.log(`[api] provider ${name} returned ${Array.isArray(r)?r.length:0} streams`);
-        return r;
       } catch (e) {
         console.error(`[api] provider ${name} failed:`, e.message);
         providerTimings[name] = null;
+        if (streaming) sendEvent('provider', { provider: name, durationMs: null, success: false, count: 0, streams: [] });
         return [];
       }
+      if (streaming && !disconnected) {
+        const streams = formatStreams(r);
+        streamedCount += streams.length;
+        metrics.streamsReturned += streams.length;
+        sendEvent('provider', { provider: name, durationMs: providerTimings[name], success: true, count: streams.length, streams });
+      }
+      return r;
     }));
-    let streams = results.flat();
-    streams = applyFilters(streams, 'aggregate', config.minQualities, config.excludeCodecs);
-    metrics.streamsReturned += streams.length;
-    if (config.enableProxy) {
-      const serverUrl = `${req.protocol}://${req.get('host')}`;
-      streams = processStreamsForProxy(streams, serverUrl);
-      // Omit original headers when proxying to avoid leaking upstream requirements
-      streams = streams.map(s => { if (s && typeof s === 'object') { const { headers, ...rest } = s; return rest; } return s; });
+    if (streaming) {
+      if (!disconnected) {
+        sendEvent('complete', { success: true, tmdbId, imdbId, count: streamedCount, providerTimings });
+        res.end();
+      }
+      return;
     }
+    const streams = formatStreams(results.flat());
+    metrics.streamsReturned += streams.length;
     res.json({ success:true, tmdbId, imdbId, count: streams.length, providerTimings, streams });
   } catch (e) {
     metrics.lastError = e.message;
-    res.status(500).json({ success:false, error:'INTERNAL_ERROR', message:e.message });
+    console.error('[api] aggregate streams error:', e.message);
+    if (streaming) {
+      sendEvent('error', { success: false, error: 'INTERNAL_ERROR' });
+      if (!disconnected) res.end();
+    } else res.status(500).json({ success:false, error:'INTERNAL_ERROR', message:e.message });
+  } finally {
+    clearInterval(heartbeat);
   }
 });
 
