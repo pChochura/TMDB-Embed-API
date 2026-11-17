@@ -29,6 +29,24 @@ function parseCookies(raw) {
   return Array.from(new Set(arr.map(c => c.replace(/^ui=/,'').trim()).filter(Boolean)));
 }
 
+function parseBridgeUrls(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return Array.from(new Set(raw.map(u => String(u).trim().replace(/\/+$/, '')).filter(Boolean)));
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    const json = parseJsonMaybe(trimmed);
+    if (Array.isArray(json)) {
+      return Array.from(new Set(json.map(u => String(u).trim().replace(/\/+$/, '')).filter(Boolean)));
+    }
+    const parts = trimmed.split(/[\n,;]+/).map(s => s.trim().replace(/\/+$/, '')).filter(Boolean);
+    return Array.from(new Set(parts));
+  }
+  return [];
+}
+
 function readOverrideFile() {
   try {
     if (fs.existsSync(OVERRIDE_PATH)) {
@@ -74,6 +92,12 @@ function normalizeConfig(base) {
   cfg.minQualities = parseJsonMaybe(cfg.minQualitiesRaw) || (cfg.minQualitiesRaw ? { default: cfg.minQualitiesRaw } : null);
   cfg.excludeCodecs = parseJsonMaybe(cfg.excludeCodecsRaw) || null;
   cfg.febboxCookies = Array.isArray(cfg.febboxCookies) ? cfg.febboxCookies : parseCookies(cfg.febboxCookies);
+
+  // Stremio HTTP Addon Bridge URLs support
+  const rawBridgeUrls = cfg.stremioBridgeUrls ?? cfg.STREMIO_BRIDGE_URLS ?? null;
+  cfg.stremioBridgeUrls = parseBridgeUrls(rawBridgeUrls);
+  delete cfg.STREMIO_BRIDGE_URLS;
+
   // TMDB multi-key support: allow tmdbApiKeys (array) or legacy single tmdbApiKey
   if (cfg.tmdbApiKeys && !Array.isArray(cfg.tmdbApiKeys)) {
     if (typeof cfg.tmdbApiKeys === 'string') {
@@ -94,17 +118,31 @@ function normalizeConfig(base) {
   // Do not expose legacy single-key field in merged config output
   delete cfg.tmdbApiKey;
   
-  // Dynamic provider enable flags
-  const providerNames = getProviderNames();
+  // Dynamic provider enable flags (include known providers even if not yet created on disk)
+  const providerNames = Array.from(new Set([...getProviderNames(), 'movieweb', 'stremiobridge']));
   const boolKeys = providerNames.map(name => `enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`);
   boolKeys.push('disableCache', 'enablePStreamApi', 'disableUrlValidation', 'disable4khdhubUrlValidation', 'enableProxy');
   
   boolKeys.forEach(k=>{ if (cfg[k] === 'true') cfg[k] = true; else if (cfg[k] === 'false') cfg[k] = false; });
+
+  // Handle camelCase aliases
+  if (cfg.enableStremioBridgeProvider !== undefined && cfg.enableStremiobridgeProvider === undefined) {
+    cfg.enableStremiobridgeProvider = cfg.enableStremioBridgeProvider === 'true' || cfg.enableStremioBridgeProvider === true;
+  }
+  if (cfg.enableMovieWebProvider !== undefined && cfg.enableMoviewebProvider === undefined) {
+    cfg.enableMoviewebProvider = cfg.enableMovieWebProvider === 'true' || cfg.enableMovieWebProvider === true;
+  }
+  if (cfg.enableVidZeeProvider !== undefined && cfg.enableVidzeeProvider === undefined) {
+    cfg.enableVidzeeProvider = cfg.enableVidZeeProvider === 'true' || cfg.enableVidZeeProvider === true;
+  }
   
   // Set defaults for provider enable flags
+  // Sidecar-dependent providers (stremiobridge) and slow/unstable providers (cinezo, hexa) default to disabled
   providerNames.forEach(name => {
     const flag = `enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`;
-    if (cfg[flag] === undefined) cfg[flag] = !['cinezo', 'hexa'].includes(name);
+    if (cfg[flag] === undefined) {
+      cfg[flag] = !['cinezo', 'hexa', 'stremiobridge'].includes(name);
+    }
   });
   
   // Default values for other flags
@@ -131,14 +169,27 @@ function applyConfigToEnv(cfg){
   if (cfg.febboxCookies && cfg.febboxCookies.length) process.env.FEBBOX_COOKIES = cfg.febboxCookies.join(',');
   else delete process.env.FEBBOX_COOKIES;
   if (cfg.defaultRegion) process.env.DEFAULT_REGION = cfg.defaultRegion; else delete process.env.DEFAULT_REGION;
+
+  // Stremio HTTP Addon Bridge URLs env
+  if (cfg.stremioBridgeUrls && cfg.stremioBridgeUrls.length) {
+    process.env.STREMIO_BRIDGE_URLS = cfg.stremioBridgeUrls.join(',');
+  } else {
+    delete process.env.STREMIO_BRIDGE_URLS;
+  }
   
   // Dynamic provider enable flags
-  const providerNames = getProviderNames();
+  const providerNames = Array.from(new Set([...getProviderNames(), 'movieweb', 'stremiobridge']));
   providerNames.forEach(name => {
     const flag = `enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`;
     const envName = `ENABLE_${name.toUpperCase()}_PROVIDER`;
     process.env[envName] = cfg[flag] ? 'true' : 'false';
   });
+  if (process.env.ENABLE_STREMIOBRIDGE_PROVIDER) {
+    process.env.ENABLE_STREMIO_BRIDGE_PROVIDER = process.env.ENABLE_STREMIOBRIDGE_PROVIDER;
+  }
+  if (process.env.ENABLE_MOVIEWWEB_PROVIDER) {
+    process.env.ENABLE_MOVIE_WEB_PROVIDER = process.env.ENABLE_MOVIEWWEB_PROVIDER;
+  }
   
   // Caching / validation / PStream
   process.env.DISABLE_CACHE = cfg.disableCache ? 'true':'false';
@@ -165,12 +216,13 @@ function loadConfig() {
   const envCfg = {
     port: Number(process.env.API_PORT) || 8787,
     defaultRegion: process.env.DEFAULT_REGION || process.env.FEBBOX_REGION || null,
-  defaultProviders: (process.env.DEFAULT_PROVIDERS || '').split(/[\s,]+/).map(p=>p.trim().toLowerCase()).filter(Boolean),
+    defaultProviders: (process.env.DEFAULT_PROVIDERS || '').split(/[\s,]+/).map(p=>p.trim().toLowerCase()).filter(Boolean),
     minQualitiesRaw: process.env.MIN_QUALITIES || null,
     excludeCodecsRaw: process.env.EXCLUDE_CODECS || null,
     tmdbApiKey: process.env.TMDB_API_KEY || null,
-  tmdbApiKeys: parseJsonMaybe(process.env.TMDB_API_KEYS) || null,
+    tmdbApiKeys: parseJsonMaybe(process.env.TMDB_API_KEYS) || null,
     febboxCookies: parseCookies(process.env.FEBBOX_COOKIES),
+    stremioBridgeUrls: parseBridgeUrls(process.env.STREMIO_BRIDGE_URLS),
     // Extended advanced config (may not exist in env)
     disableCache: process.env.DISABLE_CACHE,
     enablePStreamApi: process.env.ENABLE_PSTREAM_API,
@@ -183,11 +235,17 @@ function loadConfig() {
   };
   
   // Dynamic provider enable flags from env
-  const providerNames = getProviderNames();
+  const providerNames = Array.from(new Set([...getProviderNames(), 'movieweb', 'stremiobridge']));
   providerNames.forEach(name => {
     const envName = `ENABLE_${name.toUpperCase()}_PROVIDER`;
     envCfg[`enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`] = process.env[envName];
   });
+  if (process.env.ENABLE_STREMIO_BRIDGE_PROVIDER !== undefined && !envCfg.enableStremiobridgeProvider) {
+    envCfg.enableStremiobridgeProvider = process.env.ENABLE_STREMIO_BRIDGE_PROVIDER;
+  }
+  if (process.env.ENABLE_MOVIE_WEB_PROVIDER !== undefined && !envCfg.enableMoviewebProvider) {
+    envCfg.enableMoviewebProvider = process.env.ENABLE_MOVIE_WEB_PROVIDER;
+  }
   
   const override = readOverrideFile();
   const merged = { ...envCfg, ...override };

@@ -22,6 +22,11 @@ const providerFunctionMap = {
   'zxcstreams.js': 'getZxcstreamsStreams',
   'cinezo.js': 'getCinezoStreams',
   'hexa.js': 'getHexaStreams',
+  'movieweb.js': 'getMovieWebStreams',
+  'stremiobridge.js': 'getStremioBridgeStreams',
+  'polish.js': 'getPolishStreams',
+  'vidzee.js': 'getVidzeeStreams',
+  'animepahe.js': 'getAnimepaheStreams',
 };
 
 // Stats for debug endpoint
@@ -36,11 +41,17 @@ function getProviderFiles() {
   const providersDir = path.join(__dirname);
   return fs.readdirSync(providersDir)
     .filter(file => file.endsWith('.js') && file !== 'registry.js')
-    .map(file => ({
-      name: path.parse(file).name.toLowerCase(),
-      file: file,
-      functionName: providerFunctionMap[file]
-    }));
+    .map(file => {
+      const lowerName = path.parse(file).name.toLowerCase();
+      const mappedFunc = providerFunctionMap[file] ||
+        providerFunctionMap[`${lowerName}.js`] ||
+        providerFunctionMap[Object.keys(providerFunctionMap).find(k => k.toLowerCase() === file.toLowerCase())];
+      return {
+        name: lowerName,
+        file: file,
+        functionName: mappedFunc || `get${lowerName.charAt(0).toUpperCase() + lowerName.slice(1)}Streams`
+      };
+    });
 }
 
 // Load a provider module
@@ -58,18 +69,26 @@ function loadProvider(providerFile) {
 
 // Create fetch function for a provider
 function createFetchFunction(providerInfo) {
-  return async function(ctx) {
+  return async function(ctx = {}) {
     const module = loadProvider(providerInfo.file);
     if (!module) return [];
 
-    const funcName = providerInfo.functionName;
-    if (!module[funcName]) {
+    let funcName = providerInfo.functionName;
+    if (!funcName || !module[funcName]) {
+      if (typeof module.getMovieWebStreams === 'function') funcName = 'getMovieWebStreams';
+      else if (typeof module.getStremioBridgeStreams === 'function') funcName = 'getStremioBridgeStreams';
+      else if (typeof module.getAnimepaheStreams === 'function') funcName = 'getAnimepaheStreams';
+      else if (typeof module.getStreams === 'function') funcName = 'getStreams';
+      else if (typeof module.getStreamsFromTmdbId === 'function') funcName = 'getStreamsFromTmdbId';
+    }
+
+    if (!funcName || !module[funcName]) {
       console.error(`Provider ${providerInfo.name} does not export ${funcName}`);
       return [];
     }
 
     try {
-      const mediaType = ctx.type === 'movie' ? 'movie' : 'tv';
+      const mediaType = (ctx && ctx.type === 'movie') ? 'movie' : 'tv';
       const t0 = Date.now();
 
       let result;
@@ -99,8 +118,8 @@ function createFetchFunction(providerInfo) {
         }
         global.currentRequestConfig = previousConfig || {};
       } else {
-        // Standard provider call
-        result = await module[funcName](ctx.tmdbId, mediaType, ctx.season ?? null, ctx.episode ?? null);
+        // Standard provider call: pass ctx as 5th argument so providers can access imdbId and metadata
+        result = await module[funcName](ctx.tmdbId, mediaType, ctx.season ?? null, ctx.episode ?? null, ctx);
       }
 
       const durationMs = Date.now() - t0;
@@ -119,24 +138,50 @@ function createFetchFunction(providerInfo) {
 }
 
 // Initialize providers - always load all; enabled state is checked dynamically from live config
-const providerFiles = getProviderFiles();
 const providers = [];
 
-for (const providerInfo of providerFiles) {
-  providers.push({
-    name: providerInfo.name,
-    fetch: createFetchFunction(providerInfo)
-  });
-  console.log(`[registry] ${providerInfo.name} provider loaded`);
+function ensureProvidersLoaded() {
+  const currentFiles = getProviderFiles();
+  for (const info of currentFiles) {
+    if (!providers.some(p => p.name === info.name)) {
+      providers.push({
+        name: info.name,
+        fetch: createFetchFunction(info)
+      });
+      console.log(`[registry] ${info.name} provider loaded`);
+    }
+  }
 }
+
+// Initial load
+ensureProvidersLoaded();
 
 function isProviderEnabled(name) {
-  const flag = `enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`;
-  return config[flag] !== false;
+  const normName = name.toLowerCase();
+  const flag = `enable${normName.charAt(0).toUpperCase() + normName.slice(1)}Provider`;
+  if (config[flag] !== undefined) return config[flag] !== false;
+  // Fallbacks for alternative naming conventions
+  if (normName === 'stremiobridge' && config.enableStremioBridgeProvider !== undefined) {
+    return config.enableStremioBridgeProvider !== false;
+  }
+  if (normName === 'movieweb' && config.enableMovieWebProvider !== undefined) {
+    return config.enableMovieWebProvider !== false;
+  }
+  // Sidecar-dependent and heavy providers default to disabled
+  if (['cinezo', 'hexa', 'stremiobridge'].includes(normName)) {
+    return false;
+  }
+  return true;
 }
 
-function listProviders() { return providers.map(p => ({ name: p.name, enabled: isProviderEnabled(p.name) })); }
+function listProviders() {
+  ensureProvidersLoaded();
+  return providers.map(p => ({ name: p.name, enabled: isProviderEnabled(p.name) }));
+}
+
 function getProvider(name) {
+  if (!name) return null;
+  ensureProvidersLoaded();
   const p = providers.find(p => p.name === name.toLowerCase());
   if (!p) return null;
   return { ...p, enabled: isProviderEnabled(p.name) };

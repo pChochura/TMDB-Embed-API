@@ -25,15 +25,25 @@ async function getExternalIds(type, tmdbId) {
   cache.imdbByTmdb.set(key, { data: json, ts: Date.now() });
   return json;
 }
-async function getDetails(type, tmdbId) {
-  const key = `${type}:${tmdbId}:details`;
+async function getDetails(type, tmdbId, language = null) {
+  const langKey = language || 'default';
+  const key = `${type}:${tmdbId}:details:${langKey}`;
   const cached = cache.details.get(key);
   if (isFresh(cached)) return cached.data;
-  const json = await tmdbFetchJson(`https://api.themoviedb.org/3/${type}/${tmdbId}`);
+  const langQuery = language ? `?language=${encodeURIComponent(language)}` : '';
+  const json = await tmdbFetchJson(`https://api.themoviedb.org/3/${type}/${tmdbId}${langQuery}`);
   cache.details.set(key, { data: json, ts: Date.now() });
   return json;
 }
 async function resolveImdbId(type, tmdbId) {
   try { const ext = await getExternalIds(type, tmdbId); return ext.imdb_id || null; } catch { return null; }
 }
-module.exports = { getExternalIds, getDetails, resolveImdbId };
+async function getPolishTitle(type, tmdbId) {
+  try {
+    const plDetails = await getDetails(type, tmdbId, 'pl-PL');
+    return plDetails.title || plDetails.name || null;
+  } catch {
+    return null;
+  }
+}
+module.exports = { getExternalIds, getDetails, resolveImdbId, getPolishTitle };

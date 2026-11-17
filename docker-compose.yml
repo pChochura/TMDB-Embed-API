@@ -12,6 +12,8 @@ services:
       - BIND_HOST=0.0.0.0
       # FebBox cookies (comma separated) if you want Showbox immediately functional
       - FEBBOX_COOKIES=${FEBBOX_COOKIES:-}
+      # Stremio HTTP bridge sidecars (comma-separated base URLs e.g. http://webstreamr:51546,http://cinepro-core:3000/stremio)
+      - STREMIO_BRIDGE_URLS=${STREMIO_BRIDGE_URLS:-}
     ports:
       - "8787:8787"
     volumes:
@@ -26,6 +28,31 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+
+  # Optional sidecar: Webstreamr (Stremio HTTP Addon Bridge)
+  # webstreamr:
+  #   image: webstreamr/webstreamr:latest
+  #   container_name: webstreamr
+  #   restart: unless-stopped
+  #   pull_policy: always
+  #   ports:
+  #     - "51546:51546"
+  #   environment:
+  #     - TMDB_ACCESS_TOKEN=${TMDB_ACCESS_TOKEN:-}
+  #     - CACHE_DIR=/tmp
+  #   volumes:
+  #     - /tmp:/tmp
+
+  # Optional sidecar: CinePro Core (Stremio HTTP Addon Bridge)
+  # cinepro-core:
+  #   image: ghcr.io/cinepro-org/core:latest
+  #   container_name: cinepro-core
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - TMDB_API_KEY=${TMDB_API_KEY:-}
+  #     - STREMIO_ADDON=true
 volumes:
   user_config_data:
   # restart_marker:

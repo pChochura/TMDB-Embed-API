@@ -9,6 +9,7 @@ const { listProviders, getProvider, getCookieStats } = require('./providers/regi
 const { createProxyRoutes, processStreamsForProxy } = require('./proxy/proxyServer');
 const { resolveImdbId } = require('./utils/tmdb');
 const { applyFilters } = require('./utils/streamFilters');
+const { isFfmpegAvailable, streamRemux } = require('./utils/remux');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -272,6 +273,7 @@ app.get('/api/status', (req,res) => {
     'GET /api/providers/:name',
     'GET /api/streams/:type/:tmdbId (optional ?stream=1)',
     'GET /api/streams/:provider/:type/:tmdbId',
+    'GET /api/remux/mp4 (optional ?url=...&referer=...&download=1)',
     'POST /api/config',
     'GET /api/config'
   ];
@@ -439,6 +441,26 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
   }
 });
 
+// Optional on-the-fly HLS-to-MP4 remuxing endpoint (pipes fragmented MP4 via ffmpeg when requested)
+app.get('/api/remux/mp4', (req, res) => {
+  const { url, referer, download, filename } = req.query;
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ success: false, error: 'MISSING_URL', message: 'Query parameter "url" is required.' });
+  }
+  if (!isFfmpegAvailable()) {
+    return res.status(501).json({
+      success: false,
+      error: 'FFMPEG_UNAVAILABLE',
+      message: 'FFmpeg is not installed or available on this system for on-the-fly MP4 remuxing.'
+    });
+  }
+  return streamRemux(res, url, {
+    download: download === '1' || download === 'true',
+    filename: filename || 'stream.mp4',
+    referer: referer || 'https://player.vidzee.wtf/'
+  });
+});
+
 const PORT = config.port;
 const HOST = process.env.BIND_HOST || '0.0.0.0';
 const server = app.listen(PORT, HOST, () => {
@@ -452,6 +474,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log('  GET  /api/providers');
   console.log('  GET  /api/streams/:type/:id');
   console.log('  POST /api/streams/:type/:id');
+  console.log('  GET  /api/remux/mp4');
   if (!config.febboxCookies || config.febboxCookies.length === 0) {
     console.warn('[startup][warning] No FEBBOX_COOKIES configured. Showbox / PStream related streams may be unavailable. Set FEBBOX_COOKIES in your environment to enable these sources.');
   }
