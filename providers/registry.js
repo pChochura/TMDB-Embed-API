@@ -20,6 +20,8 @@ const providerFunctionMap = {
   'netmirror.js': 'getNetmirrorStreams',
   'onetouchtv.js': 'getOnetouchtvStreams',
   'zxcstreams.js': 'getZxcstreamsStreams',
+  'cinezo.js': 'getCinezoStreams',
+  'hexa.js': 'getHexaStreams',
 };
 
 // Stats for debug endpoint
@@ -98,7 +100,7 @@ function createFetchFunction(providerInfo) {
         global.currentRequestConfig = previousConfig || {};
       } else {
         // Standard provider call
-        result = await module[funcName](ctx.tmdbId, mediaType, ctx.season || null, ctx.episode || null);
+        result = await module[funcName](ctx.tmdbId, mediaType, ctx.season ?? null, ctx.episode ?? null);
       }
 
       const durationMs = Date.now() - t0;

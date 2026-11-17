@@ -26,6 +26,9 @@ ENV NODE_ENV=production \
     BIND_HOST=0.0.0.0 \
     APP_VERSION=${VERSION}
 
+# Browser-backed providers use the system Chromium rather than downloading a browser.
+RUN apk add --no-cache chromium
+
 # Create non-root user
 RUN addgroup -S app && adduser -S app -G app
 

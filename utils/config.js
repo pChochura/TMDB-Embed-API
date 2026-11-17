@@ -104,7 +104,7 @@ function normalizeConfig(base) {
   // Set defaults for provider enable flags
   providerNames.forEach(name => {
     const flag = `enable${name.charAt(0).toUpperCase() + name.slice(1)}Provider`;
-    if (cfg[flag] === undefined) cfg[flag] = true; // Default to enabled
+    if (cfg[flag] === undefined) cfg[flag] = !['cinezo', 'hexa'].includes(name);
   });
   
   // Default values for other flags

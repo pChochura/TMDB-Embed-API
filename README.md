@@ -3,7 +3,7 @@
 > Modern, configurable streaming metadata + source aggregation API with a secure admin panel and multi-key TMDB rotation.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat" />
+  <img src="https://img.shields.io/badge/Node.js-20.18.1%2B-brightgreen?style=flat" />
   <img src="https://img.shields.io/badge/Status-Active-success?style=flat" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat" />
   <img src="https://img.shields.io/badge/Version-1.3.0-informational?style=flat" />
@@ -33,7 +33,7 @@
 ---
 
 ## ✨ Features
-- **13 Built-in Providers** – Showbox/FebBox, 4KHDHub, VixSrc, Videasy, Vidlink, DahmerMovies, StreamFlix, VaPlayer, CastleTV, HDGharTV, NetMirror, OneTouchTV, ZXCStreams — with per-provider enable toggles + default selection.
+- **15 Built-in Providers** – Showbox/FebBox, 4KHDHub, VixSrc, Videasy, Vidlink, DahmerMovies, StreamFlix, VaPlayer, CastleTV, HDGharTV, NetMirror, OneTouchTV, ZXCStreams, Cinezo and Hexa — with per-provider enable toggles + default selection.
 - **Multi-TMDB Key Rotation** – Supply multiple API keys; one is chosen randomly per request.
 - **🔥 Plugin System** – Drop new provider files in `providers/` and add its exported function to the registry map (`providers/registry.js` → `providerFunctionMap`). No core file edits required.
 - **Dynamic Filtering** – Minimum quality presets, custom JSON quality map, codec exclusion rules (presets + JSON).
@@ -254,8 +254,24 @@ The API supports a plugin system. Drop a new provider file in the `providers/` f
 - `netmirror` - NetMirror streams (Netflix direct + NewTV platform fallback)
 - `onetouchtv` - OneTouchTV streams (AES-256 encrypted API)
 - `zxcstreams` - ZXCStreams streams (multi-server backend, dynamic domain discovery)
+- `cinezo` - Cinezo player streams (browser required; disabled by default)
+- `hexa` - Hexa player streams (browser required; disabled by default)
 
 Providers that rely on title resolution against TMDB (`castletv`, `hdghartv`, `onetouchtv`, `zxcstreams`, `vaplayer`, `netmirror`) require at least one TMDB API key configured.
+
+Cinezo and Hexa use a headless Chromium browser to detect successful HLS or MP4
+playback requests. Enable them in the provider settings or with
+`ENABLE_CINEZO_PROVIDER=true` and `ENABLE_HEXA_PROVIDER=true` (saved settings
+take precedence). They are disabled by default because browser extraction is
+resource-intensive and may be blocked by verification challenges or upstream
+access restrictions. The Docker image includes Chromium; for local installations,
+install Chromium or Chrome and set `BROWSER_EXECUTABLE_PATH` if it is not in a
+standard location. Chromium's sandbox must be available in the runtime.
+Docker's default seccomp profile can block Chromium's sandbox; use a container
+seccomp profile that permits the required user-namespace operations rather than
+disabling the Chromium sandbox. See the [Playwright Docker guidance](https://playwright.dev/docs/docker#crawling-and-scraping).
+Up to two extractions run at once; each waits up to 25 seconds for a stream.
+Live availability depends on the sites and no bypass of verification is provided.
 
 ### Adding a New Provider
 1. **Create** `providers/yourprovider.js` with your stream fetching logic
@@ -277,6 +293,8 @@ Providers that rely on title resolution against TMDB (`castletv`, `hdghartv`, `o
      'netmirror.js': 'getNetmirrorStreams',
      'onetouchtv.js': 'getOnetouchtvStreams',
      'zxcstreams.js': 'getZxcstreamsStreams',
+     'cinezo.js': 'getCinezoStreams',
+     'hexa.js': 'getHexaStreams',
      'yourprovider.js': 'getYourproviderStreams'
    };
    ```
