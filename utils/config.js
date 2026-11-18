@@ -12,7 +12,9 @@ function resolveOverridePath() {
       if (fs.statSync(newPath).isDirectory()) {
         return path.join(newPath, 'user-config.json');
       }
-    } catch {}
+    } catch {
+      /* ignore stat error */
+    }
     return newPath;
   }
   const legacyPath = path.join(process.cwd(), 'user-config.json');

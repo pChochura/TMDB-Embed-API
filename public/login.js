@@ -72,8 +72,13 @@
     const pwStatus = $('#pwStatus');
     pwStatus.textContent = 'Updating...';
     pwStatus.className = 'status';
+    const username = $('#username')?.value?.trim() || 'admin';
     try {
-      const r = await fetch('/auth/change-password', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ oldPassword, newPassword }) });
+      const r = await fetch('/auth/change-password', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ username, oldPassword, newPassword })
+      });
       const j = await r.json();
       if (!j.success) {
         pwStatus.textContent = j.error || 'Update failed';

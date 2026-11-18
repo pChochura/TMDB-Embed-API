@@ -122,14 +122,15 @@ app.get('/auth/session', (req,res) => {
   res.json({ authenticated:true, username: sess.u });
 });
 
-app.post('/auth/change-password', requireAuth, (req,res) => {
-  const { oldPassword, newPassword } = req.body || {};
+app.post('/auth/change-password', (req,res) => {
+  const { username, oldPassword, newPassword } = req.body || {};
   if (!oldPassword || !newPassword) return res.status(400).json({ success:false, error:'MISSING_FIELDS' });
-  const sess = req.session;
-  if (!authenticate(sess.u, oldPassword)) return res.status(401).json({ success:false, error:'INVALID_OLD_PASSWORD' });
+  const sess = getSession(req);
+  const targetUser = sess?.u || username || 'admin';
+  if (!authenticate(targetUser, oldPassword)) return res.status(401).json({ success:false, error:'INVALID_OLD_PASSWORD' });
   if (envPasswordConfigured) return res.status(409).json({ success:false, error:'PASSWORD_MANAGED_BY_ENVIRONMENT' });
   if (newPassword.length < 8) return res.status(400).json({ success:false, error:'PASSWORD_TOO_SHORT' });
-  if (!updatePassword(sess.u, newPassword)) return res.status(500).json({ success:false, error:'UPDATE_FAILED' });
+  if (!updatePassword(targetUser, newPassword)) return res.status(500).json({ success:false, error:'UPDATE_FAILED' });
   res.json({ success:true, message:'PASSWORD_UPDATED' });
 });
 
