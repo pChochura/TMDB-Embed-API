@@ -20,16 +20,22 @@ runcmd:
   - curl -fsSL https://get.docker.com | sh
   - usermod -aG docker ubuntu
 
-  # 3. Setup application directory
+  # 3. Setup application directory and clone sidecars
   - mkdir -p /home/ubuntu/app
   - git clone ${repo_url} /home/ubuntu/app
-  - chown -R ubuntu:ubuntu /home/ubuntu/app
+  - git clone https://github.com/lakshya9pro2-dot/api.videogetter.git /home/ubuntu/api.videogetter
+  - git clone https://github.com/titan717/vidcore-io-stream-resolver.git /home/ubuntu/vidcore-io-stream-resolver
+  - chown -R ubuntu:ubuntu /home/ubuntu
 
-  # 4. Generate .env file
+  # 4. Generate .env file with sidecar microservice endpoints
   - echo "TMDB_API_KEY=${tmdb_api_key}" > /home/ubuntu/app/.env
   - echo "API_PORT=${api_port}" >> /home/ubuntu/app/.env
   - echo "BIND_HOST=0.0.0.0" >> /home/ubuntu/app/.env
+  - echo "VIDEOGETTER_API_BASE=http://videogetter:8088" >> /home/ubuntu/app/.env
+  - echo "ENABLE_VIDEOGETTER_PROVIDER=true" >> /home/ubuntu/app/.env
+  - echo "VIDCORE_RESOLVER_BASE=http://vidcore:8789" >> /home/ubuntu/app/.env
+  - echo "ENABLE_VIDCORE_PROVIDER=true" >> /home/ubuntu/app/.env
   - chown ubuntu:ubuntu /home/ubuntu/app/.env
 
-  # 5. Build and launch container as ubuntu user
+  # 5. Build and launch containers as ubuntu user
   - sudo -u ubuntu docker compose -f /home/ubuntu/app/docker-compose.yml up -d --build

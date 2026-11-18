@@ -14,6 +14,13 @@ services:
       - FEBBOX_COOKIES=${FEBBOX_COOKIES:-}
       # Stremio HTTP bridge sidecars (comma-separated base URLs e.g. http://webstreamr:51546,http://cinepro-core:3000/stremio)
       - STREMIO_BRIDGE_URLS=${STREMIO_BRIDGE_URLS:-}
+      # VideoGetter sidecar microservice
+      - VIDEOGETTER_API_BASE=${VIDEOGETTER_API_BASE:-http://videogetter:8088}
+      - ENABLE_VIDEOGETTER_PROVIDER=${ENABLE_VIDEOGETTER_PROVIDER:-true}
+      - VIDEOGETTER_API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
+      # VidCore sidecar microservice
+      - VIDCORE_RESOLVER_BASE=${VIDCORE_RESOLVER_BASE:-http://vidcore:8789}
+      - ENABLE_VIDCORE_PROVIDER=${ENABLE_VIDCORE_PROVIDER:-true}
     ports:
       - "8787:8787"
     volumes:
@@ -54,26 +61,26 @@ services:
   #     - TMDB_API_KEY=${TMDB_API_KEY:-}
   #     - STREMIO_ADDON=true
 
-  # Optional sidecar: VideoGetter (Go microservice)
-  # videogetter:
-  #   build: ../api.videogetter
-  #   container_name: videogetter
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8088:8088"
-  #   environment:
-  #     - PORT=8088
-  #     - API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
+  # VideoGetter Sidecar (Go microservice)
+  videogetter:
+    build: ../api.videogetter
+    container_name: videogetter
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      - PORT=8088
+      - API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
 
-  # Optional sidecar: VidCore (Node/TS resolver & HLS proxy)
-  # vidcore:
-  #   build: ../vidcore-io-stream-resolver
-  #   container_name: vidcore
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8789:8789"
-  #   environment:
-  #     - PORT=8789
+  # VidCore Sidecar (Node/TS resolver & HLS proxy)
+  vidcore:
+    build: ../vidcore-io-stream-resolver
+    container_name: vidcore
+    restart: unless-stopped
+    ports:
+      - "8789:8789"
+    environment:
+      - PORT=8789
 
 
 volumes:
