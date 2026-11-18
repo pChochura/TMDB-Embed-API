@@ -14,13 +14,10 @@ const { isFfmpegAvailable, streamRemux } = require('./utils/remux');
 const app = express();
 app.set('trust proxy', 1);
 
-// Conditionally mount proxy routes early so downstream handlers can use them
-if (config.enableProxy) {
-  console.log('[startup] enableProxy flag active: mounting proxy routes');
-  createProxyRoutes(app);
-} else {
-  console.log('[startup] enableProxy flag disabled: proxy routes not mounted');
-}
+// Always mount proxy routes so that whenever enableProxy is turned on (via config or admin panel),
+// the /m3u8-proxy, /ts-proxy, and /sub-proxy endpoints are immediately functional without requiring a restart.
+createProxyRoutes(app);
+console.log('[startup] proxy routes mounted (/m3u8-proxy, /ts-proxy, /sub-proxy)');
 
 // --- Simple In-Memory Rate Limiting for /auth/login ---
 const loginAttempts = new Map(); // key: ip, value: { count, first, last, lockedUntil }
