@@ -69,9 +69,14 @@ function parseBridgeUrls(raw) {
 function readOverrideFile() {
   try {
     if (fs.existsSync(OVERRIDE_PATH)) {
-      const raw = fs.readFileSync(OVERRIDE_PATH, 'utf8');
-      const data = JSON.parse(raw);
-      return data && typeof data === 'object' ? data : {};
+      const stat = fs.statSync(OVERRIDE_PATH);
+      const filePath = stat.isDirectory() ? path.join(OVERRIDE_PATH, 'user-config.json') : OVERRIDE_PATH;
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const data = JSON.parse(raw);
+        return data && typeof data === 'object' ? data : {};
+      }
+      return {};
     }
   } catch (e) {
     console.warn('[config] Failed to read override file:', e.message);

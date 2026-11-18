@@ -29,7 +29,8 @@ ENV NODE_ENV=production \
     APP_VERSION=${VERSION}
 
 # Browser-backed providers use the system Chromium rather than downloading a browser.
-RUN apk add --no-cache chromium
+# su-exec allows entrypoint to run root volume setup and drop privileges to app user.
+RUN apk add --no-cache chromium su-exec
 
 # Create non-root user
 RUN addgroup -S app && adduser -S app -G app
@@ -45,13 +46,12 @@ COPY --from=build /app/routes ./routes
 COPY --from=build /app/db ./db
 COPY --from=build /app/package.json ./
 COPY --from=build /app/README.md ./
+COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && chown -R app:app /app
 
 # Expose port (documentational; runtime can override)
 EXPOSE 8787
-
-# Ensure runtime user owns app directory for writes (overrides, restart marker)
-RUN chown -R app:app /app
-USER app
 
 # Labels / metadata
 LABEL org.opencontainers.image.title="TMDB Embed API" \
@@ -61,6 +61,7 @@ LABEL org.opencontainers.image.title="TMDB Embed API" \
     org.opencontainers.image.licenses="MIT"
 
 # Healthcheck (simple)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://localhost:${API_PORT:-8787}/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD wget -qO- http://127.0.0.1:${API_PORT:-8787}/api/health || exit 1
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node","apiServer.js"]
