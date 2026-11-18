@@ -21,7 +21,7 @@ runcmd:
   - usermod -aG docker ubuntu
 
   # 2.5 Setup and mount persistent PostgreSQL data volume (if block device attached via Terraform)
-  - mkdir -p /mnt/postgres-data
+  - mkdir -p /mnt/postgres-data/pgdata
   - |
     for dev in /dev/oracleoci/oraclevdb /dev/sdb /dev/vdb; do
       if [ -b "$dev" ]; then
@@ -32,11 +32,12 @@ runcmd:
           echo "UUID=$UUID /mnt/postgres-data ext4 defaults,noatime,_netdev 0 2" >> /etc/fstab
         fi
         mount /mnt/postgres-data || true
+        mkdir -p /mnt/postgres-data/pgdata
         break
       fi
     done
   - chown -R 999:999 /mnt/postgres-data 2>/dev/null || chown -R 1000:1000 /mnt/postgres-data
-  - chmod 700 /mnt/postgres-data
+  - chmod 700 /mnt/postgres-data /mnt/postgres-data/pgdata 2>/dev/null || true
 
   # 3. Setup application directory and clone sidecars
   - mkdir -p /home/ubuntu/app
