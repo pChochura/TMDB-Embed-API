@@ -28,6 +28,7 @@ const providerFunctionMap = {
   'vidzee.js': 'getVidzeeStreams',
   'animepahe.js': 'getAnimepaheStreams',
   'videogetter.js': 'getVideogetterStreams',
+  'vidcore.js': 'getVidcoreStreams',
 };
 
 // Stats for debug endpoint

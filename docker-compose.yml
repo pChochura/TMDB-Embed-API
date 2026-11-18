@@ -65,6 +65,17 @@ services:
   #     - PORT=8088
   #     - API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
 
+  # Optional sidecar: VidCore (Node/TS resolver & HLS proxy)
+  # vidcore:
+  #   build: ../vidcore-io-stream-resolver
+  #   container_name: vidcore
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8789:8789"
+  #   environment:
+  #     - PORT=8789
+
+
 volumes:
   user_config_data:
   # restart_marker:
