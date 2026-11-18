@@ -10,6 +10,8 @@ const { createProxyRoutes, processStreamsForProxy } = require('./proxy/proxyServ
 const { resolveImdbId } = require('./utils/tmdb');
 const { applyFilters } = require('./utils/streamFilters');
 const { isFfmpegAvailable, streamRemux } = require('./utils/remux');
+const syncRouter = require('./routes/sync');
+const { initDb } = require('./db');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -85,6 +87,9 @@ process.exit = function(code){
 setImmediate(()=>console.log('[diagnostic] post-start setImmediate fired'));
 app.use(cors());
 app.use(express.json());
+
+// Auth & Preferences Sync API
+app.use('/api', syncRouter);
 
 // --- Auth Routes (login before static serving) ---
 app.post('/auth/login', (req,res) => {
@@ -273,7 +278,11 @@ app.get('/api/status', (req,res) => {
     'GET /api/streams/:provider/:type/:tmdbId',
     'GET /api/remux/mp4 (optional ?url=...&referer=...&download=1)',
     'POST /api/config',
-    'GET /api/config'
+    'GET /api/config',
+    'POST /api/auth/register',
+    'POST /api/auth/login',
+    'GET /api/sync/pull',
+    'POST /api/sync/push'
   ];
   // Determine cookie requirement heuristically (currently Showbox / PStream)
   const cookieRequiredProviders = new Set(['showbox']);
@@ -473,6 +482,11 @@ const server = app.listen(PORT, HOST, () => {
   console.log('  GET  /api/streams/:type/:id');
   console.log('  POST /api/streams/:type/:id');
   console.log('  GET  /api/remux/mp4');
+  console.log('  POST /api/auth/register');
+  console.log('  POST /api/auth/login');
+  console.log('  GET  /api/sync/pull');
+  console.log('  POST /api/sync/push');
+  initDb().catch(err => console.error('[startup] Database initialization error:', err.message));
   if (!config.febboxCookies || config.febboxCookies.length === 0) {
     console.warn('[startup][warning] No FEBBOX_COOKIES configured. Showbox / PStream related streams may be unavailable. Set FEBBOX_COOKIES in your environment to enable these sources.');
   }

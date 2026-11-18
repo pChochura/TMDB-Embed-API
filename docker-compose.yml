@@ -21,6 +21,14 @@ services:
       # VidCore sidecar microservice
       - VIDCORE_RESOLVER_BASE=${VIDCORE_RESOLVER_BASE:-http://vidcore:8789}
       - ENABLE_VIDCORE_PROVIDER=${ENABLE_VIDCORE_PROVIDER:-true}
+      # PostgreSQL database connection for Auth & Sync API
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-tmdb_sync}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-tmdb_sync}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - SYNC_JWT_SECRET=${SYNC_JWT_SECRET:-filman_sync_secret_key_change_me}
     ports:
       - "8787:8787"
     volumes:
@@ -28,6 +36,9 @@ services:
       - user_config_data:/app/utils/user-config.json
       # Allow restart trigger file (optional; stored in container FS)
       # - restart_marker:/app/restart.trigger
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8787/api/health || exit 1"]
@@ -83,6 +94,28 @@ services:
       - PORT=8789
 
 
+  # PostgreSQL database for Auth & Preferences Sync
+  postgres:
+    image: postgres:16-alpine
+    container_name: tmdb-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-tmdb_sync}
+    volumes:
+      - ${POSTGRES_DATA_DIR:-postgres_data}:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-tmdb_sync}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   user_config_data:
+  postgres_data:
   # restart_marker:

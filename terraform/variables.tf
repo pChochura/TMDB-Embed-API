@@ -71,3 +71,41 @@ variable "repo_url" {
   description = "Git repository URL to deploy"
   default     = "https://github.com/pChochura/TMDB-Embed-API.git"
 }
+
+variable "postgres_user" {
+  type        = string
+  description = "PostgreSQL database user"
+  default     = "postgres"
+}
+
+variable "postgres_password" {
+  type        = string
+  description = "PostgreSQL database password"
+  default     = "postgres_secure_pass_change_me"
+  sensitive   = true
+}
+
+variable "postgres_db" {
+  type        = string
+  description = "PostgreSQL database name"
+  default     = "tmdb_sync"
+}
+
+variable "sync_jwt_secret" {
+  type        = string
+  description = "JWT secret key for Auth & Sync API"
+  default     = "filman_sync_secret_key_change_me"
+  sensitive   = true
+}
+
+variable "enable_postgres_volume" {
+  type        = bool
+  description = "Whether to provision an OCI persistent block volume for PostgreSQL data"
+  default     = true
+}
+
+variable "postgres_volume_size_in_gbs" {
+  type        = number
+  description = "Size in GBs for the persistent PostgreSQL block volume (OCI Always Free provides up to 200 GB total)"
+  default     = 50
+}

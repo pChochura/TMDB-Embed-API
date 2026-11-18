@@ -20,6 +20,24 @@ runcmd:
   - curl -fsSL https://get.docker.com | sh
   - usermod -aG docker ubuntu
 
+  # 2.5 Setup and mount persistent PostgreSQL data volume (if block device attached via Terraform)
+  - mkdir -p /mnt/postgres-data
+  - |
+    for dev in /dev/oracleoci/oraclevdb /dev/sdb /dev/vdb; do
+      if [ -b "$dev" ]; then
+        echo "Found attached block storage device: $dev"
+        blkid "$dev" || mkfs.ext4 -F -L postgres_data "$dev"
+        UUID=$(blkid -s UUID -o value "$dev")
+        if [ -n "$UUID" ] && ! grep -q "$UUID" /etc/fstab; then
+          echo "UUID=$UUID /mnt/postgres-data ext4 defaults,noatime,_netdev 0 2" >> /etc/fstab
+        fi
+        mount /mnt/postgres-data || true
+        break
+      fi
+    done
+  - chown -R 999:999 /mnt/postgres-data 2>/dev/null || chown -R 1000:1000 /mnt/postgres-data
+  - chmod 700 /mnt/postgres-data
+
   # 3. Setup application directory and clone sidecars
   - mkdir -p /home/ubuntu/app
   - git clone ${repo_url} /home/ubuntu/app
@@ -29,10 +47,16 @@ runcmd:
   - cp /home/ubuntu/app/docker/vidcore.Dockerfile /home/ubuntu/vidcore-io-stream-resolver/Dockerfile
   - chown -R ubuntu:ubuntu /home/ubuntu
 
-  # 4. Generate .env file with sidecar microservice endpoints
+  # 4. Generate .env file with database, JWT, and sidecar microservice endpoints
   - echo "TMDB_API_KEY=${tmdb_api_key}" > /home/ubuntu/app/.env
   - echo "API_PORT=${api_port}" >> /home/ubuntu/app/.env
   - echo "BIND_HOST=0.0.0.0" >> /home/ubuntu/app/.env
+  - echo "POSTGRES_USER=${postgres_user}" >> /home/ubuntu/app/.env
+  - echo "POSTGRES_PASSWORD=${postgres_password}" >> /home/ubuntu/app/.env
+  - echo "POSTGRES_DB=${postgres_db}" >> /home/ubuntu/app/.env
+  - echo "DATABASE_URL=postgresql://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}" >> /home/ubuntu/app/.env
+  - echo "SYNC_JWT_SECRET=${sync_jwt_secret}" >> /home/ubuntu/app/.env
+  - echo "POSTGRES_DATA_DIR=/mnt/postgres-data" >> /home/ubuntu/app/.env
   - echo "VIDEOGETTER_API_BASE=http://videogetter:8088" >> /home/ubuntu/app/.env
   - echo "ENABLE_VIDEOGETTER_PROVIDER=true" >> /home/ubuntu/app/.env
   - echo "VIDCORE_RESOLVER_BASE=http://vidcore:8789" >> /home/ubuntu/app/.env

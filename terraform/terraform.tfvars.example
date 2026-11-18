@@ -30,3 +30,11 @@ instance_memory_in_gbs = 12
 
 # Or AMD Always Free (fallback if ARM has no capacity in your region):
 # instance_shape = "VM.Standard.E2.1.Micro"
+
+# --- PostgreSQL & Auth/Sync API Configuration ---
+# postgres_user               = "postgres"
+# postgres_password           = "generate_a_secure_password_here"
+# postgres_db                 = "tmdb_sync"
+# sync_jwt_secret             = "generate_a_secure_jwt_secret_here"
+# enable_postgres_volume      = true
+# postgres_volume_size_in_gbs = 50

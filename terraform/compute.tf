@@ -42,11 +42,33 @@ resource "oci_core_instance" "tmdb_instance" {
   metadata = {
     ssh_authorized_keys = file(pathexpand(var.ssh_public_key_path))
     user_data = base64encode(templatefile("${path.module}/cloud-init.yaml", {
-      tmdb_api_key = var.tmdb_api_key
-      api_port     = 8787
-      repo_url     = var.repo_url
+      tmdb_api_key           = var.tmdb_api_key
+      api_port               = 8787
+      repo_url               = var.repo_url
+      postgres_user          = var.postgres_user
+      postgres_password      = var.postgres_password
+      postgres_db            = var.postgres_db
+      sync_jwt_secret        = var.sync_jwt_secret
+      enable_postgres_volume = var.enable_postgres_volume
     }))
   }
 
   preserve_boot_volume = false
+}
+
+# Persistent Block Volume for PostgreSQL data (Always Free eligible)
+resource "oci_core_volume" "postgres_volume" {
+  count               = var.enable_postgres_volume ? 1 : 0
+  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[var.availability_domain_number - 1].name
+  compartment_id      = local.compartment_id
+  display_name        = "tmdb-postgres-data"
+  size_in_gbs         = var.postgres_volume_size_in_gbs
+}
+
+resource "oci_core_volume_attachment" "postgres_volume_attachment" {
+  count           = var.enable_postgres_volume ? 1 : 0
+  attachment_type = "paravirtualized"
+  instance_id     = oci_core_instance.tmdb_instance.id
+  volume_id       = oci_core_volume.postgres_volume[0].id
+  display_name    = "tmdb-postgres-data-attach"
 }
