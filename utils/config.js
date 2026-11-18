@@ -1,10 +1,27 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-// Relocated user-config.json into utils directory; maintain backward-compatible fallback
-const NEW_OVERRIDE_PATH = path.join(process.cwd(), 'utils', 'user-config.json');
-const LEGACY_OVERRIDE_PATH = path.join(process.cwd(), 'user-config.json');
-const OVERRIDE_PATH = (fs.existsSync(NEW_OVERRIDE_PATH) || !fs.existsSync(LEGACY_OVERRIDE_PATH)) ? NEW_OVERRIDE_PATH : LEGACY_OVERRIDE_PATH;
+function resolveOverridePath() {
+  if (process.env.USER_CONFIG_PATH) return process.env.USER_CONFIG_PATH;
+  const dataPath = path.join(process.cwd(), 'data', 'user-config.json');
+  if (fs.existsSync(dataPath)) return dataPath;
+
+  const newPath = path.join(process.cwd(), 'utils', 'user-config.json');
+  if (fs.existsSync(newPath)) {
+    try {
+      if (fs.statSync(newPath).isDirectory()) {
+        return path.join(newPath, 'user-config.json');
+      }
+    } catch {}
+    return newPath;
+  }
+  const legacyPath = path.join(process.cwd(), 'user-config.json');
+  if (fs.existsSync(legacyPath)) return legacyPath;
+  if (fs.existsSync(path.join(process.cwd(), 'data'))) return dataPath;
+  return newPath;
+}
+
+const OVERRIDE_PATH = resolveOverridePath();
 const CONFIG_SCHEMA_VERSION = 1; // Increment when structure / semantics change
 
 function parseJsonMaybe(val) {
@@ -62,6 +79,10 @@ function readOverrideFile() {
 
 function writeOverrideFile(obj) {
   try {
+    const dir = path.dirname(OVERRIDE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     fs.writeFileSync(OVERRIDE_PATH, JSON.stringify(obj, null, 2));
     return true;
   } catch (e) {
