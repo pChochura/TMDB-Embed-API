@@ -25,6 +25,8 @@ runcmd:
   - git clone ${repo_url} /home/ubuntu/app
   - git clone https://github.com/lakshya9pro2-dot/api.videogetter.git /home/ubuntu/api.videogetter
   - git clone https://github.com/titan717/vidcore-io-stream-resolver.git /home/ubuntu/vidcore-io-stream-resolver
+  - cp /home/ubuntu/app/docker/videogetter.Dockerfile /home/ubuntu/api.videogetter/Dockerfile
+  - cp /home/ubuntu/app/docker/vidcore.Dockerfile /home/ubuntu/vidcore-io-stream-resolver/Dockerfile
   - chown -R ubuntu:ubuntu /home/ubuntu
 
   # 4. Generate .env file with sidecar microservice endpoints
