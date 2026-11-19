@@ -41,142 +41,160 @@ function filterByCodecs(streams, exclude) {
 
 const LANGUAGE_ALIASES = {
   en: ['en', 'eng', 'english', 'orig', 'original'],
-  multi: ['multi', 'multiaudio', 'multi-audio', 'dual', 'dual-audio', 'multi audio', 'dual audio'],
   pl: ['pl', 'pol', 'polish', 'polski', 'lektor', 'napisy', 'dubbing'],
+  hi: ['hi', 'hin', 'hindi'],
+  ta: ['ta', 'tam', 'tamil'],
+  te: ['te', 'tel', 'telugu'],
+  kn: ['kn', 'kan', 'kannada'],
+  ml: ['ml', 'mal', 'malayalam'],
+  bn: ['bn', 'ben', 'bengali'],
+  pa: ['pa', 'pan', 'punjabi'],
+  mr: ['mr', 'mar', 'marathi'],
   es: ['es', 'spa', 'spanish', 'espanol', 'español', 'castellano', 'latino'],
   fr: ['fr', 'fre', 'fra', 'french', 'francais', 'français', 'vff', 'vfq'],
   de: ['de', 'ger', 'deu', 'german', 'deutsch'],
   it: ['it', 'ita', 'italian', 'italiano'],
   pt: ['pt', 'por', 'portuguese', 'português'],
-  hi: ['hi', 'hin', 'hindi'],
+  ru: ['ru', 'rus', 'russian'],
   ja: ['ja', 'jpn', 'japanese', 'japan'],
   ko: ['ko', 'kor', 'korean', 'korea'],
-  zh: ['zh', 'chi', 'zho', 'chinese'],
-  ru: ['ru', 'rus', 'russian']
+  zh: ['zh', 'chi', 'zho', 'chinese', 'mandarin', 'cantonese'],
+  ar: ['ar', 'ara', 'arabic'],
+  tr: ['tr', 'tur', 'turkish'],
+  multi: ['multi', 'multiaudio', 'multi-audio', 'dual', 'dual-audio', 'multi audio', 'dual audio']
 };
 
+function getCanonicalLang(codeOrName) {
+  if (!codeOrName) return null;
+  const lower = String(codeOrName).toLowerCase().trim();
+  for (const [canonical, aliases] of Object.entries(LANGUAGE_ALIASES)) {
+    if (canonical === lower || aliases.includes(lower)) return canonical;
+  }
+  return lower;
+}
+
 function detectStreamLanguages(s) {
-  if (!s || typeof s !== 'object') return ['unknown'];
+  if (!s || typeof s !== 'object') return { langs: ['unknown'], isMulti: false };
   const langs = new Set();
+  let isMulti = false;
 
   // 1. Provider-level detection
   if (s.provider === 'polish') {
     langs.add('pl');
-    langs.add('polish');
   }
 
   // 2. Explicit language / lang property
-  if (s.language && typeof s.language === 'string') {
-    const l = s.language.toLowerCase().trim();
-    langs.add(l);
-    if (l.includes('multi')) langs.add('multi');
-    if (l.includes('eng')) langs.add('en');
-    if (l.includes('pol')) langs.add('pl');
-    if (l.includes('hin')) langs.add('hi');
-    if (l.includes('spa') || l.includes('esp')) langs.add('es');
-    if (l.includes('fre') || l.includes('fra')) langs.add('fr');
-    if (l.includes('ger') || l.includes('deu')) langs.add('de');
-    if (l.includes('ita')) langs.add('it');
-    if (l.includes('rus')) langs.add('ru');
-    if (l.includes('jap')) langs.add('ja');
-  }
-  if (s.lang && typeof s.lang === 'string') {
-    langs.add(s.lang.toLowerCase().trim());
+  const explicit = s.language || s.lang;
+  if (typeof explicit === 'string') {
+    const l = explicit.toLowerCase().trim();
+    if (l !== 'auto' && l !== 'unknown') {
+      const canon = getCanonicalLang(l);
+      if (canon === 'multi') isMulti = true;
+      else if (canon) langs.add(canon);
+    }
   }
 
   // 3. Audio tracks array
-  if (Array.isArray(s.audioTracks)) {
+  if (Array.isArray(s.audioTracks) && s.audioTracks.length > 0) {
+    if (s.audioTracks.length > 1) isMulti = true;
     for (const track of s.audioTracks) {
       if (track) {
-        if (track.language) langs.add(String(track.language).toLowerCase().trim());
-        if (track.label) langs.add(String(track.label).toLowerCase().trim());
+        const c1 = getCanonicalLang(track.language);
+        if (c1) langs.add(c1);
+        const c2 = getCanonicalLang(track.label);
+        if (c2) langs.add(c2);
       }
     }
   }
 
-  // 4. Subtitles (marked as subtitle indicators)
-  if (Array.isArray(s.subtitles)) {
-    for (const sub of s.subtitles) {
-      if (sub) {
-        const subLang = sub.lang || sub.language;
-        if (subLang) langs.add(`sub:${String(subLang).toLowerCase().trim()}`);
-      }
-    }
-  }
-
-  // 5. String search in title and name
+  // 4. Text analysis of name and title (subtitles are excluded so text subtitles do not misrepresent audio)
   const text = `${s.name || ''} ${s.title || ''}`.toLowerCase();
 
-  if (/\b(multi[- ]?audio|dual[- ]?audio)\b/i.test(text)) langs.add('multi');
-  if (/\b(original|orig)\b/i.test(text)) langs.add('original');
-  if (/\b(english|eng|eng[- ]?dub|dubbed)\b/i.test(text) || /\[eng(lish)?\]/i.test(text)) langs.add('en');
-  if (/\b(polish|polski|lektor|napisy|dubbing)\b/i.test(text) || /\[pl\b/i.test(text) || /\bpl[- ]/i.test(text)) langs.add('pl');
-  if (/\b(spanish|espanol|español|castellano|latino)\b/i.test(text) || /\[es(p)?\]/i.test(text)) langs.add('es');
-  if (/\b(french|francais|français|vff|vfq)\b/i.test(text) || /\[fr(a)?\]/i.test(text)) langs.add('fr');
-  if (/\b(german|deutsch)\b/i.test(text) || /\[de(u)?\]/i.test(text)) langs.add('de');
-  if (/\b(italian|italiano)\b/i.test(text) || /\[it(a)?\]/i.test(text)) langs.add('it');
-  if (/\b(hindi)\b/i.test(text) || /\[hin?(di)?\]/i.test(text)) langs.add('hi');
-  if (/\b(japanese|anime)\b/i.test(text) || /\[ja(p)?\]/i.test(text)) langs.add('ja');
-  if (/\b(korean)\b/i.test(text) || /\[kor?\]/i.test(text)) langs.add('ko');
-  if (/\b(russian)\b/i.test(text) || /\[rus?\]/i.test(text)) langs.add('ru');
-  if (/\b(portuguese|português)\b/i.test(text) || /\[pt|por\]/i.test(text)) langs.add('pt');
+  // Multi / Dual tags
+  if (/\b(multi[- ]?audio|dual[- ]?audio|multi|dual)\b/i.test(text)) {
+    isMulti = true;
+  }
 
-  // AnimePahe specific tags
-  if (/\bdub\b/i.test(text)) langs.add('en');
-  if (/\bsub\b/i.test(text)) {
-    langs.add('ja');
-    langs.add('sub:en');
+  // Bracketed language tags, e.g. [Hindi], [Tamil], [English], [Hindi-Tamil-Telugu], [PL Lektor]
+  const bracketMatches = text.match(/\[([a-z0-9\s\-+/,.]+)\]/gi) || [];
+  for (const b of bracketMatches) {
+    const inside = b.replace(/\[|\]/g, '').toLowerCase();
+    for (const [canon, aliases] of Object.entries(LANGUAGE_ALIASES)) {
+      if (canon === 'multi') continue;
+      if (aliases.some(a => {
+        if (a.length <= 2) {
+          return new RegExp(`(^|[^a-z])${a}([^a-z]|$)`, 'i').test(inside);
+        }
+        return inside.includes(a);
+      })) {
+        langs.add(canon);
+      }
+    }
+  }
+
+  // General text keywords across the name/title string
+  for (const [canon, aliases] of Object.entries(LANGUAGE_ALIASES)) {
+    if (canon === 'multi') continue;
+    for (const a of aliases) {
+      if (a.length <= 2) {
+        const regex = new RegExp(`(\\[|\\b)${a}(\\]|[- ](audio|dub|dubbing|lektor|napisy))`, 'i');
+        if (regex.test(text)) langs.add(canon);
+      } else {
+        const regex = new RegExp(`\\b${a}\\b`, 'i');
+        if (regex.test(text)) langs.add(canon);
+      }
+    }
+  }
+
+  // AnimePahe specific: (Dub) is English dub
+  if (/\bdub\b/i.test(text) && !langs.has('pl')) {
+    langs.add('en');
+  }
+
+  if (langs.size > 1) {
+    isMulti = true;
   }
 
   if (langs.size === 0) {
-    langs.add('unknown');
+    return { langs: isMulti ? ['multi'] : ['unknown'], isMulti };
   }
 
-  return Array.from(langs);
+  return { langs: Array.from(langs), isMulti };
 }
 
-function matchesAnyLanguage(detectedLangs, targetLangs, allowUnknownFallback = false) {
-  if (!Array.isArray(targetLangs) || targetLangs.length === 0) return false;
+function streamMatchesAllowed(streamInfo, allowedCanons) {
+  const { langs, isMulti } = streamInfo;
 
-  const normalizedTargets = targetLangs.map(l => String(l).toLowerCase().trim()).filter(Boolean);
-  if (normalizedTargets.length === 0 || normalizedTargets.includes('all')) return true;
-
-  const targetAliases = new Set();
-  for (const t of normalizedTargets) {
-    targetAliases.add(t);
-    for (const [key, aliases] of Object.entries(LANGUAGE_ALIASES)) {
-      if (key === t || aliases.includes(t)) {
-        targetAliases.add(key);
-        aliases.forEach(a => targetAliases.add(a));
-      }
-    }
+  // Untagged streams: Western aggregators return original audio (predominantly English)
+  if (langs.length === 1 && langs[0] === 'unknown') {
+    return allowedCanons.has('en') || allowedCanons.has('unknown');
   }
 
-  // Untagged/unknown content in general aggregators is treated as English/Original
-  if (allowUnknownFallback && detectedLangs.includes('unknown')) {
-    const englishOrUnknown = ['en', 'eng', 'english', 'orig', 'original', 'unknown'];
-    if (englishOrUnknown.some(e => targetAliases.has(e))) {
+  // If stream is marked multi with no other specific languages
+  if (langs.length === 1 && langs[0] === 'multi') {
+    return allowedCanons.has('multi');
+  }
+
+  // Stream has detected languages
+  // Check if any detected language is a foreign language NOT in allowedCanons
+  const foreignNonAllowed = langs.filter(l => !allowedCanons.has(l) && l !== 'multi' && l !== 'unknown');
+
+  if (foreignNonAllowed.length > 0) {
+    // If it has foreign languages not allowed (e.g. Hindi, Tamil):
+    // Only allow if multi is explicitly allowed AND the stream also contains an allowed language
+    if (isMulti && allowedCanons.has('multi') && langs.some(l => allowedCanons.has(l))) {
       return true;
     }
+    return false;
   }
 
-  // Multi-audio streams include English audio
-  if (detectedLangs.includes('multi')) {
-    if (['en', 'eng', 'english', 'multi', 'multiaudio'].some(e => targetAliases.has(e))) {
-      return true;
-    }
-  }
+  // All detected languages are allowed
+  return langs.some(l => allowedCanons.has(l));
+}
 
-  for (const detected of detectedLangs) {
-    const norm = String(detected).toLowerCase().trim();
-    if (targetAliases.has(norm)) return true;
-    if (norm.startsWith('sub:')) {
-      const subCode = norm.slice(4);
-      if (targetAliases.has(subCode)) return true;
-    }
-  }
-
-  return false;
+function streamMatchesExclude(streamInfo, excludeCanons) {
+  const { langs } = streamInfo;
+  return langs.some(l => excludeCanons.has(l));
 }
 
 function filterByLanguage(streams, allowedLanguages, excludeLanguages) {
@@ -187,17 +205,31 @@ function filterByLanguage(streams, allowedLanguages, excludeLanguages) {
 
   if (!hasAllowed && !hasExclude) return streams;
 
-  return streams.filter(s => {
-    const detected = detectStreamLanguages(s);
+  const allowedCanons = new Set();
+  if (hasAllowed) {
+    for (const l of allowedLanguages) {
+      const c = getCanonicalLang(l);
+      if (c) allowedCanons.add(c);
+    }
+  }
 
-    // Check exclude rules first
-    if (hasExclude && matchesAnyLanguage(detected, excludeLanguages, false)) {
+  const excludeCanons = new Set();
+  if (hasExclude) {
+    for (const l of excludeLanguages) {
+      const c = getCanonicalLang(l);
+      if (c) excludeCanons.add(c);
+    }
+  }
+
+  return streams.filter(s => {
+    const streamInfo = detectStreamLanguages(s);
+
+    if (hasExclude && streamMatchesExclude(streamInfo, excludeCanons)) {
       return false;
     }
 
-    // Check allow rules
-    if (hasAllowed) {
-      return matchesAnyLanguage(detected, allowedLanguages, true);
+    if (hasAllowed && !streamMatchesAllowed(streamInfo, allowedCanons)) {
+      return false;
     }
 
     return true;
@@ -222,5 +254,6 @@ module.exports = {
   filterByMinQuality,
   filterByCodecs,
   filterByLanguage,
-  detectStreamLanguages
+  detectStreamLanguages,
+  getCanonicalLang
 };
