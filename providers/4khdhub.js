@@ -57,6 +57,17 @@ function rot13(str) {
     });
 }
 
+function isArchiveUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+        const u = new URL(url);
+        const path = u.pathname.toLowerCase();
+        return /\.(zip|rar|7z|tar|gz|bz2|iso)(\?|$)/i.test(path) || /\.(zip|rar|7z|tar|gz|bz2|iso)$/i.test(url.toLowerCase());
+    } catch {
+        return /\.(zip|rar|7z|tar|gz|bz2|iso)(\?|$)/i.test(url.toLowerCase());
+    }
+}
+
 function validateUrl(url) {
     return new Promise((resolve) => {
         try {
@@ -1383,14 +1394,13 @@ function extractStreamingLinks(downloadLinks) {
             const validResults = results.filter(r => r !== null).flat();
             const filtered = validResults.filter(link => {
                 if (!link || !link.url) return false;
-                const lower = link.url.toLowerCase();
-                if (lower.endsWith('.zip')) {
-                    console.log(`[4KHDHub] Skipping archive (zip) link: ${link.url}`);
+                if (isArchiveUrl(link.url)) {
+                    console.log(`[4KHDHub] Skipping archive (zip/rar) link: ${link.url}`);
                     return false;
                 }
                 return true;
             });
-            console.log(`[4KHDHub] Post-processing: kept ${filtered.length}, skipped ${validResults.length - filtered.length} zip archive links`);
+            console.log(`[4KHDHub] Post-processing: kept ${filtered.length}, skipped ${validResults.length - filtered.length} archive links`);
             return filtered;
         });
 }
@@ -1818,8 +1828,13 @@ async function get4KHDHubStreams(tmdbId, type, season = null, episode = null) {
             streamingLinks = await extractStreamingLinks(resolvedUrls);
         }
 
-        // Filter out suspicious AMP/redirect URLs
+        // Filter out suspicious AMP/redirect URLs and archive files (.zip, .rar, etc.)
         const filteredLinks = streamingLinks.filter(link => {
+            if (!link || !link.url) return false;
+            if (isArchiveUrl(link.url)) {
+                console.log(`[4KHDHub] Filtered out archive URL: ${link.url}`);
+                return false;
+            }
             const url = link.url.toLowerCase();
             const suspiciousPatterns = [
                 'www-google-com.cdn.ampproject.org',

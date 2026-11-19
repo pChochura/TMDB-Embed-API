@@ -76,6 +76,11 @@ async function prefetchSegment(url, headers) {
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 function inferContentType(upstreamCT, targetUrl) {
+    if (upstreamCT) {
+        if (/video\/mkv/i.test(upstreamCT)) return 'video/x-matroska';
+        if (/video\/x-matroska/i.test(upstreamCT)) return 'video/x-matroska';
+        if (/video\/mp4/i.test(upstreamCT)) return 'video/mp4';
+    }
     const bad = !upstreamCT || /application\/octet-stream/i.test(upstreamCT) || /application\/(x-)?zip/i.test(upstreamCT);
     if (!bad) return upstreamCT;
     if (/\.mkv(\?|$)/i.test(targetUrl)) return 'video/x-matroska';
@@ -182,8 +187,8 @@ function createProxyRoutes(app) {
         const debug = req.query.debug === '1';
         const noSynth = req.query.noSynth === '1';
         const force200 = req.query.force200 === '1';
-        const clampOpen = req.query.clampOpen !== '0';
-        const progressiveOpen = req.query.progressiveOpen !== '0';
+        const clampOpen = req.query.clampOpen === '1';
+        const progressiveOpen = req.query.progressiveOpen === '1';
         const tailPrefetchEnabled = req.query.tailPrefetch !== '0';
         let tailPrefetchKB = parseInt(req.query.tailPrefetchKB || '256', 10);
         if (isNaN(tailPrefetchKB) || tailPrefetchKB < 64) tailPrefetchKB = 256;
@@ -404,6 +409,7 @@ function createProxyRoutes(app) {
             const contentRange = resp.headers.get('content-range'); if (contentRange && !force200) res.setHeader('Content-Range', contentRange);
             res.setHeader('Cache-Control', 'public, max-age=3600');
             res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Content-Disposition', 'inline');
             if (debug) console.log('[ts-proxy] streaming body', { status: resp.status, ct: upstreamCT, cl, contentRange: force200 ? undefined : contentRange });
             resp.body.pipe(res);
         } catch (e) { if (debug) console.log('[ts-proxy] exception', e.message); res.status(500).json({ error: e.message }); }
@@ -440,7 +446,7 @@ function processStreamsForProxy(streams, serverUrl) {
             // Ignore errors
         }
         // Force specific hosts through ts-proxy (direct file style) even without extension
-        if (host.includes('pixeldrain.') || host === 'video-downloads.googleusercontent.com') {
+        if (host.includes('pixeldrain.') || host === 'video-downloads.googleusercontent.com' || host.includes('workers.dev')) {
             return { ...s, url: `${serverUrl}/ts-proxy?url=${encodeURIComponent(original)}${hParam}` };
         }
         if (/\.(mp4|mkv)(\?|$)/i.test(original)) {
