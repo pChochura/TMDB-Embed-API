@@ -52,6 +52,35 @@ test('Language Detection', async (t) => {
     const { langs } = detectStreamLanguages(stream);
     assert.deepEqual(langs, ['unknown']);
   });
+
+  await t.test('detects language and multi audio from URL parameters and filenames', () => {
+    const streamShowboxIta = {
+      name: 'Project Hail Mary (2026) - ORG',
+      title: 'Project Hail Mary (2026) - ORG',
+      url: 'https://usa7-as03.shegu.net/vip/movie.mkv?KEY1=abc&KEY5=Project.Hail.Mary.2026.iTA-ENG.WEBDL.2160p.HEVC.HDR.x265-CYBER.mkv'
+    };
+    const detIta = detectStreamLanguages(streamShowboxIta);
+    assert.ok(detIta.langs.includes('it'));
+    assert.ok(detIta.langs.includes('en'));
+    assert.ok(detIta.isMulti);
+
+    const streamShowboxMulti = {
+      name: 'Project Hail Mary (2026) - ORG',
+      title: 'Project Hail Mary (2026) - ORG',
+      url: 'http://localhost:8787/ts-proxy?url=https%3A%2F%2Fshegu.net%2Fmovie.mp4%3FKEY5%3DProject.Hail.Mary.2026.2160p.iT.WEB-DL.DV.P5.MULTi.DDP5.1.Atmos.H265.MP4-BEN.THE.MEN.mp4'
+    };
+    const detMulti = detectStreamLanguages(streamShowboxMulti);
+    assert.ok(detMulti.langs.includes('it'));
+    assert.ok(detMulti.isMulti);
+
+    const streamShowboxDual = {
+      name: 'Project Hail Mary (2026) - ORG',
+      title: 'Project Hail Mary (2026) - ORG',
+      url: 'https://shegu.net/movie.mkv?KEY5=Project.Hail.Mary.2026.2160p.WEBrip.h265.Dual'
+    };
+    const detDual = detectStreamLanguages(streamShowboxDual);
+    assert.ok(detDual.isMulti);
+  });
 });
 
 test('Filter by Allowed Languages [en, pl]', async (t) => {
@@ -63,7 +92,10 @@ test('Filter by Allowed Languages [en, pl]', async (t) => {
     { id: 5, name: 'CastleTV [Hindi] | 1080p', title: 'Movie 1080p', subtitles: [{ lang: 'en' }] }, // hi
     { id: 6, name: 'CastleTV [Tamil] | 1080p', title: 'Movie 1080p', subtitles: [{ lang: 'en' }] }, // ta
     { id: 7, name: '4KHDHub', title: 'Movie [Hindi-Tamil-Telugu AMZN DDP 5.1 + English Atmos] x265' }, // foreign multi
-    { id: 8, name: '4KHDHub', title: 'Movie.MULTi.DDP5.1.Atmos.mkv' } // pure multi
+    { id: 8, name: '4KHDHub', title: 'Movie.MULTi.DDP5.1.Atmos.mkv' }, // pure multi
+    { id: 9, name: 'Project Hail Mary (2026) - ORG', title: 'Project Hail Mary (2026) - ORG', url: 'https://shegu.net/movie.mkv?KEY5=Project.Hail.Mary.2026.iTA-ENG.WEBDL.2160p.HEVC.HDR.x265-CYBER.mkv' }, // Showbox Italian dual
+    { id: 10, name: 'Project Hail Mary (2026) - 1080p', title: 'Project Hail Mary (2026) - 1080p\nProject.Hail.Mary.2026.iTA-ENG.WEBDL.2160p.HEVC.HDR.x265-CYBER.mkv', url: 'https://hls.shegu.net/123.m3u8' }, // Showbox HLS transcode of Italian release
+    { id: 11, name: 'Project Hail Mary (2026) - 1080p', title: 'Project Hail Mary (2026) - 1080p\nProject.Hail.Mary.2026.2160p.sdr.mkv', url: 'https://hls.shegu.net/456.m3u8' } // Showbox English release transcode
   ];
 
   await t.test('returns all streams when allowedLanguages is empty or null', () => {
@@ -85,6 +117,9 @@ test('Filter by Allowed Languages [en, pl]', async (t) => {
     assert.ok(!ids.includes(6), 'Drops CastleTV Tamil stream even with English subs');
     assert.ok(!ids.includes(7), 'Drops Hindi-Tamil-Telugu multi-audio');
     assert.ok(!ids.includes(8), 'Drops MULTi repack when multi not allowed');
+    assert.ok(!ids.includes(9), 'Drops Showbox Italian dual audio ORG stream');
+    assert.ok(!ids.includes(10), 'Drops Showbox Italian dual audio HLS stream');
+    assert.ok(ids.includes(11), 'Keeps Showbox English release HLS stream');
   });
 
   await t.test('[en, pl, multi] keeps multi-audio containing English', () => {
@@ -98,6 +133,9 @@ test('Filter by Allowed Languages [en, pl]', async (t) => {
     assert.ok(!ids.includes(6), 'Still drops pure Tamil');
     assert.ok(ids.includes(7), 'Keeps Hindi-Tamil-Telugu + English when multi is allowed');
     assert.ok(ids.includes(8), 'Keeps MULTi repack when multi is allowed');
+    assert.ok(ids.includes(9), 'Keeps Italian + English when multi is allowed');
+    assert.ok(ids.includes(10), 'Keeps Italian + English transcode when multi is allowed');
+    assert.ok(ids.includes(11), 'Keeps English release HLS stream');
   });
 
   await t.test('filters for Polish only (drops untagged and other languages)', () => {

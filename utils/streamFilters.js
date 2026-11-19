@@ -47,9 +47,9 @@ const LANGUAGE_ALIASES = {
   te: ['te', 'tel', 'telugu'],
   kn: ['kn', 'kan', 'kannada'],
   ml: ['ml', 'mal', 'malayalam'],
-  bn: ['bn', 'ben', 'bengali'],
-  pa: ['pa', 'pan', 'punjabi'],
-  mr: ['mr', 'mar', 'marathi'],
+  bn: ['bn', 'bengali'],
+  pa: ['pa', 'punjabi'],
+  mr: ['mr', 'marathi'],
   es: ['es', 'spa', 'spanish', 'espanol', 'español', 'castellano', 'latino'],
   fr: ['fr', 'fre', 'fra', 'french', 'francais', 'français', 'vff', 'vfq'],
   de: ['de', 'ger', 'deu', 'german', 'deutsch'],
@@ -63,6 +63,39 @@ const LANGUAGE_ALIASES = {
   tr: ['tr', 'tur', 'turkish'],
   multi: ['multi', 'multiaudio', 'multi-audio', 'dual', 'dual-audio', 'multi audio', 'dual audio']
 };
+
+function extractUrlText(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return '';
+  try {
+    let result = '';
+    const key5Match = urlStr.match(/(?:KEY5|filename|file)=([^&]+)/i);
+    if (key5Match) {
+      try {
+        result += ' ' + decodeURIComponent(key5Match[1]);
+      } catch {
+        result += ' ' + key5Match[1];
+      }
+    }
+    const nestedUrlMatch = urlStr.match(/[?&]url=([^&]+)/i);
+    if (nestedUrlMatch) {
+      try {
+        const decodedNested = decodeURIComponent(nestedUrlMatch[1]);
+        result += ' ' + extractUrlText(decodedNested);
+      } catch {
+        result += ' ' + nestedUrlMatch[1];
+      }
+    }
+    try {
+      const parsed = new URL(urlStr, 'http://localhost');
+      result += ' ' + decodeURIComponent(parsed.pathname);
+    } catch {
+      result += ' ' + urlStr;
+    }
+    return result;
+  } catch {
+    return urlStr;
+  }
+}
 
 function getCanonicalLang(codeOrName) {
   if (!codeOrName) return null;
@@ -107,8 +140,10 @@ function detectStreamLanguages(s) {
     }
   }
 
-  // 4. Text analysis of name and title (subtitles are excluded so text subtitles do not misrepresent audio)
-  const text = `${s.name || ''} ${s.title || ''}`.toLowerCase();
+  // 4. Text analysis of name, title, filename, and url (subtitles are excluded so text subtitles do not misrepresent audio)
+  const urlText = extractUrlText(s.url);
+  const rawText = `${s.name || ''} ${s.title || ''} ${s.filename || ''} ${urlText}`;
+  const text = rawText.replace(/[._+]/g, ' ').toLowerCase();
 
   // Multi / Dual tags
   if (/\b(multi[- ]?audio|dual[- ]?audio|multi|dual)\b/i.test(text)) {
@@ -116,7 +151,7 @@ function detectStreamLanguages(s) {
   }
 
   // Bracketed language tags, e.g. [Hindi], [Tamil], [English], [Hindi-Tamil-Telugu], [PL Lektor]
-  const bracketMatches = text.match(/\[([a-z0-9\s\-+/,.]+)\]/gi) || [];
+  const bracketMatches = rawText.match(/\[([a-z0-9\s\-+/,.]+)\]/gi) || [];
   for (const b of bracketMatches) {
     const inside = b.replace(/\[|\]/g, '').toLowerCase();
     for (const [canon, aliases] of Object.entries(LANGUAGE_ALIASES)) {
@@ -132,7 +167,16 @@ function detectStreamLanguages(s) {
     }
   }
 
-  // General text keywords across the name/title string
+  // Scene release Italian tags in rawText
+  if (
+    /(?:^|[._\-\s])ita(?:[._\-\s]|$)/i.test(rawText) ||
+    /(?:^|[._\-\s])ita-(?:eng|ita)/i.test(rawText) ||
+    /(?:^|[._\-\s])(?:2160p|1080p|720p|4k|web|bluray|h264|h265|hevc)[._\-\s]it[._\-\s]/i.test(rawText)
+  ) {
+    langs.add('it');
+  }
+
+  // General text keywords across the name/title/url string
   for (const [canon, aliases] of Object.entries(LANGUAGE_ALIASES)) {
     if (canon === 'multi') continue;
     for (const a of aliases) {

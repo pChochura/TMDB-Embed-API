@@ -189,10 +189,12 @@ function findBestMatch(query, candidates, options) {
     return { best: null, score: 0, breakdown: {}, matchedOn: '', reason: 'no candidates returned by search', ranked };
   }
 
-  const passed = top.score >= threshold;
+  const minTextScore = options.minTextScore || 0.28;
+  const textPassed = (top.breakdown.textScore >= minTextScore) || (top.breakdown.exact > 0) || (top.breakdown.normalized > 0);
+  const passed = top.score >= threshold && textPassed;
   const reason = passed
     ? `best candidate "${top.candidate.title}" scored ${round(top.score)} (>= threshold ${threshold}) via ${top.matchedOn}`
-    : `best candidate "${top.candidate.title}" scored ${round(top.score)} which is below threshold ${threshold} — rejected as a likely mismatch`;
+    : `best candidate "${top.candidate.title}" scored ${round(top.score)} (textScore ${top.breakdown.textScore}) which failed threshold ${threshold} or min text score ${minTextScore} — rejected as a likely mismatch`;
 
   console.log(`[Match:${options.provider}] ${passed ? 'selected result' : 'rejected — no match above threshold'}`, {
     provider: options.provider,

@@ -243,11 +243,11 @@ function getFilenameFromUrl(url) {
                 }
 
                 if (!filename) {
-                    // Extract from URL path
+                    // Extract from URL path only if it actually looks like a filename with an extension
                     const pathParts = urlObj.pathname.split('/');
-                    filename = pathParts[pathParts.length - 1];
-                    if (filename && filename.includes('.')) {
-                        filename = filename.replace(/\.[^.]+$/, ''); // Remove extension
+                    const candidate = pathParts[pathParts.length - 1];
+                    if (candidate && /\.[a-z0-9]{2,5}$/i.test(candidate)) {
+                        filename = candidate.replace(/\.[^.]+$/, ''); // Remove extension
                     }
                 }
 

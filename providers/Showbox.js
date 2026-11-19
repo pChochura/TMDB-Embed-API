@@ -1290,6 +1290,19 @@ const fetchSourcesForSingleFid = async (fidToProcess, shareKey, regionPreference
 
         const sourcesJsArrayString = sourcesMatch[1];
         const sourcesData = JSON.parse(sourcesJsArrayString);
+        let commonDetailedFilename = null;
+        for (const sourceItem of sourcesData) {
+            if (sourceItem.file) {
+                try {
+                    const urlParams = new URLSearchParams(new URL(sourceItem.file).search);
+                    if (urlParams.has('KEY5')) {
+                        commonDetailedFilename = urlParams.get('KEY5');
+                        break;
+                    }
+                } catch (e) {
+                }
+            }
+        }
         const fidVideoLinks = [];
         for (const sourceItem of sourcesData) {
             if (sourceItem.file && sourceItem.label) {
@@ -1305,7 +1318,7 @@ const fetchSourcesForSingleFid = async (fidToProcess, shareKey, regionPreference
                 fidVideoLinks.push({
                     "label": String(sourceItem.label),
                     "url": String(sourceItem.file),
-                    "detailedFilename": detailedFilename
+                    "detailedFilename": detailedFilename || commonDetailedFilename
                 });
             }
         }
@@ -1976,18 +1989,23 @@ const getStreamsFromTmdbId = async (tmdbType, tmdbId, seasonNum = null, episodeN
                 const { fids, shareKey, directSources } = await extractFidsFromFebboxPage(febboxUrl, regionPreference, userCookie);
 
                 if (directSources && directSources.length > 0) {
+                    const directFilename = directSources.find(s => s && s.detailedFilename)?.detailedFilename || null;
                     for (const source of directSources) {
+                        let key5FromDirectSource = source.detailedFilename || null;
+                        if (!key5FromDirectSource) {
+                            try {
+                                const urlParams = new URLSearchParams(new URL(source.url).search);
+                                if (urlParams.has('KEY5')) {
+                                    key5FromDirectSource = urlParams.get('KEY5');
+                                }
+                            } catch (e) { /* ignore if URL parsing fails */ }
+                        }
+                        const filename = key5FromDirectSource || directFilename;
                         const streamTitle = `${baseStreamTitle} - ${source.label}`;
-                        let key5FromDirectSource = null;
-                        try {
-                            const urlParams = new URLSearchParams(new URL(source.url).search);
-                            if (urlParams.has('KEY5')) {
-                                key5FromDirectSource = urlParams.get('KEY5');
-                            }
-                        } catch (e) { /* ignore if URL parsing fails */ }
                         streamsFromThisShareInfo.push({
                             name: streamTitle,
-                            title: streamTitle,
+                            title: filename ? `${streamTitle}\n${filename}` : streamTitle,
+                            filename: filename || undefined,
                             url: source.url,
                             quality: parseQualityFromLabel(source.label),
                             provider: 'Febbox Direct',
@@ -2007,16 +2025,20 @@ const getStreamsFromTmdbId = async (tmdbType, tmdbId, seasonNum = null, episodeN
                             continue;
                         }
 
+                        const fidFilename = sources.find(s => s && s.detailedFilename)?.detailedFilename || null;
+
                         for (const source of sources) {
                             if (!source || !source.url || !source.label) {
                                 console.log(`  Warning: Invalid source object: ${JSON.stringify(source)}`);
                                 continue;
                             }
 
+                            const filename = source.detailedFilename || fidFilename;
                             const streamTitle = `${baseStreamTitle} - ${source.label}`;
                             streamsFromThisShareInfo.push({
                                 name: streamTitle,
-                                title: streamTitle,
+                                title: filename ? `${streamTitle}\n${filename}` : streamTitle,
+                                filename: filename || undefined,
                                 url: source.url,
                                 quality: parseQualityFromLabel(source.label),
                                 provider: 'Febbox FID',
@@ -2209,11 +2231,23 @@ const processShowWithSeasonsEpisodes = async (febboxUrl, showboxTitle, seasonNum
         console.timeEnd(`processShowWithSeasonsEpisodes_fallbackDirect_s${seasonNum}`);
 
         if (directSources && directSources.length > 0) {
+            const directFilename = directSources.find(s => s && s.detailedFilename)?.detailedFilename || null;
             for (const source of directSources) {
+                let key5FromDirectSource = source.detailedFilename || null;
+                if (!key5FromDirectSource) {
+                    try {
+                        const urlParams = new URLSearchParams(new URL(source.url).search);
+                        if (urlParams.has('KEY5')) {
+                            key5FromDirectSource = urlParams.get('KEY5');
+                        }
+                    } catch (e) { /* ignore if URL parsing fails */ }
+                }
+                const filename = key5FromDirectSource || directFilename;
                 const streamTitle = `${showboxTitle} - ${source.label}`;
                 streamsForThisCall.push({ // MODIFIED: Push to streamsForThisCall
                     name: streamTitle,
-                    title: streamTitle,
+                    title: filename ? `${streamTitle}\n${filename}` : streamTitle,
+                    filename: filename || undefined,
                     url: source.url,
                     quality: parseQualityFromLabel(source.label),
                     provider: 'Febbox Direct',
@@ -2231,11 +2265,16 @@ const processShowWithSeasonsEpisodes = async (febboxUrl, showboxTitle, seasonNum
             console.timeEnd(`processShowWithSeasonsEpisodes_fallbackFids_s${seasonNum}_concurrent`);
 
             for (const sources of fallbackFidSourcesArray) {
+                if (!sources || !Array.isArray(sources)) continue;
+                const fidFilename = sources.find(s => s && s.detailedFilename)?.detailedFilename || null;
                 for (const source of sources) {
+                    if (!source || !source.url || !source.label) continue;
+                    const filename = source.detailedFilename || fidFilename;
                     const streamTitle = `${showboxTitle} - ${source.label}`;
                     streamsForThisCall.push({ // MODIFIED: Push to streamsForThisCall
                         name: streamTitle,
-                        title: streamTitle,
+                        title: filename ? `${streamTitle}\n${filename}` : streamTitle,
+                        filename: filename || undefined,
                         url: source.url,
                         quality: parseQualityFromLabel(source.label),
                         provider: 'Febbox FID',
