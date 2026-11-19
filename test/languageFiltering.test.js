@@ -95,7 +95,8 @@ test('Filter by Allowed Languages [en, pl]', async (t) => {
     { id: 8, name: '4KHDHub', title: 'Movie.MULTi.DDP5.1.Atmos.mkv' }, // pure multi
     { id: 9, name: 'Project Hail Mary (2026) - ORG', title: 'Project Hail Mary (2026) - ORG', url: 'https://shegu.net/movie.mkv?KEY5=Project.Hail.Mary.2026.iTA-ENG.WEBDL.2160p.HEVC.HDR.x265-CYBER.mkv' }, // Showbox Italian dual
     { id: 10, name: 'Project Hail Mary (2026) - 1080p', title: 'Project Hail Mary (2026) - 1080p\nProject.Hail.Mary.2026.iTA-ENG.WEBDL.2160p.HEVC.HDR.x265-CYBER.mkv', url: 'https://hls.shegu.net/123.m3u8' }, // Showbox HLS transcode of Italian release
-    { id: 11, name: 'Project Hail Mary (2026) - 1080p', title: 'Project Hail Mary (2026) - 1080p\nProject.Hail.Mary.2026.2160p.sdr.mkv', url: 'https://hls.shegu.net/456.m3u8' } // Showbox English release transcode
+    { id: 11, name: 'Project Hail Mary (2026) - 1080p', title: 'Project Hail Mary (2026) - 1080p\nProject.Hail.Mary.2026.2160p.sdr.mkv', url: 'https://hls.shegu.net/456.m3u8' }, // Showbox English release transcode
+    { id: 12, name: 'Showbox Dual Audio', title: 'Movie Dual YG 1080p', url: 'https://shegu.net/org_movie/123/movie.original.mkv' } // Unknown second audio track
   ];
 
   await t.test('returns all streams when allowedLanguages is empty or null', () => {
@@ -120,6 +121,7 @@ test('Filter by Allowed Languages [en, pl]', async (t) => {
     assert.ok(!ids.includes(9), 'Drops Showbox Italian dual audio ORG stream');
     assert.ok(!ids.includes(10), 'Drops Showbox Italian dual audio HLS stream');
     assert.ok(ids.includes(11), 'Keeps Showbox English release HLS stream');
+    assert.ok(!ids.includes(12), 'Drops Dual YG with unknown second audio when multi is not allowed');
   });
 
   await t.test('[en, pl, multi] keeps multi-audio containing English', () => {
@@ -136,6 +138,7 @@ test('Filter by Allowed Languages [en, pl]', async (t) => {
     assert.ok(ids.includes(9), 'Keeps Italian + English when multi is allowed');
     assert.ok(ids.includes(10), 'Keeps Italian + English transcode when multi is allowed');
     assert.ok(ids.includes(11), 'Keeps English release HLS stream');
+    assert.ok(ids.includes(12), 'Keeps Dual YG when multi is allowed');
   });
 
   await t.test('filters for Polish only (drops untagged and other languages)', () => {

@@ -40,7 +40,7 @@ function filterByCodecs(streams, exclude) {
 }
 
 const LANGUAGE_ALIASES = {
-  en: ['en', 'eng', 'english', 'orig', 'original'],
+  en: ['en', 'eng', 'english'],
   pl: ['pl', 'pol', 'polish', 'polski', 'lektor', 'napisy', 'dubbing'],
   hi: ['hi', 'hin', 'hindi'],
   ta: ['ta', 'tam', 'tamil'],
@@ -230,6 +230,17 @@ function streamMatchesAllowed(streamInfo, allowedCanons) {
       return true;
     }
     return false;
+  }
+
+  // If stream is marked multi/dual, but multi is NOT allowed:
+  // Only allow if ALL detected audio tracks are explicitly in allowedCanons (e.g. English + Polish)
+  // If only one language is detected and it is marked multi/dual (e.g. "Dual YG", "Multi"),
+  // then the second audio track is unknown/foreign, so multi must be explicitly allowed!
+  if (isMulti && !allowedCanons.has('multi')) {
+    const knownAllowed = langs.filter(l => allowedCanons.has(l));
+    if (knownAllowed.length < 2) {
+      return false;
+    }
   }
 
   // All detected languages are allowed
