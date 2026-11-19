@@ -261,6 +261,7 @@ app.get('/api/metrics', (req,res) => {
       providers: config.defaultProviders,
       minQualities: config.minQualities ? Object.keys(config.minQualities).length : 0,
       excludeCodecs: config.excludeCodecs ? Object.keys(config.excludeCodecs).filter(k=>config.excludeCodecs[k]).length : 0,
+      allowedLanguages: config.allowedLanguages ? config.allowedLanguages.length : 0,
       febboxCookies: config.febboxCookies.length
     }
   });
@@ -353,7 +354,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
     if (!disconnected && !res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   const formatStreams = streams => {
-    let filtered = applyFilters(streams, 'aggregate', config.minQualities, config.excludeCodecs);
+    let filtered = applyFilters(streams, 'aggregate', config.minQualities, config.excludeCodecs, config.allowedLanguages, config.excludeLanguages);
     if (config.enableProxy) {
       const serverUrl = `${req.protocol}://${req.get('host')}`;
       filtered = processStreamsForProxy(filtered, serverUrl);
@@ -434,7 +435,7 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
     const t0 = Date.now();
     let streams = await prov.fetch({ tmdbId, type, season, episode, imdbId, filters:{} });
     const providerTimings = { [prov.name]: Date.now()-t0 };
-    streams = applyFilters(streams, prov.name, config.minQualities, config.excludeCodecs);
+    streams = applyFilters(streams, prov.name, config.minQualities, config.excludeCodecs, config.allowedLanguages, config.excludeLanguages);
     metrics.streamsReturned += streams.length;
     if (config.enableProxy) {
       const serverUrl = `${req.protocol}://${req.get('host')}`;

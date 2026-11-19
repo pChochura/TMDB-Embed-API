@@ -6,6 +6,7 @@
   "scripts": {
     "start": "nodemon --watch restart.trigger apiServer.js",
     "start:dev": "nodemon --watch restart.trigger --ignore providers/.cache --ignore **/cache apiServer.js",
+    "test": "node --test test/*.test.js",
     "lint": "eslint . --ext .js"
   },
   "dependencies": {

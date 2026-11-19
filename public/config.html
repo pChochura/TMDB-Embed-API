@@ -117,6 +117,20 @@
         </label>
         <textarea name="excludeCodecsRaw" class="mini json-adv" placeholder='{"excludeDV":true,"excludeHDR":false}' disabled></textarea>
         </div>
+        <div class="field lang-group"><label>Language Filter<p class="hint">Filter returned streams by audio/source language. Presets configure common choices; custom accepts comma-separated codes (e.g. <code>en, multi, pl</code>).</p>
+          <div class="lang-presets" id="langPresets">
+            <label class="l-item"><input type="radio" name="langPreset" value="all"> <span>All</span></label>
+            <label class="l-item"><input type="radio" name="langPreset" value="en"> <span>English</span></label>
+            <label class="l-item"><input type="radio" name="langPreset" value="en-multi"> <span>English + Multi</span></label>
+            <label class="l-item"><input type="radio" name="langPreset" value="pl"> <span>Polish (PL)</span></label>
+            <label class="l-item adv"><input type="radio" name="langPreset" value="custom"> <span>Custom</span></label>
+          </div>
+        </label>
+        <input type="text" name="allowedLanguagesRaw" class="mini lang-input" placeholder="en, multi, pl" style="margin-top:10px; width:100%; box-sizing:border-box;" disabled />
+        </div>
+        <div class="field"><label>Exclude Languages<p class="hint">Optional comma-separated language tags to exclude from results (e.g. <code>hi, ru, es</code>).</p>
+          <input type="text" name="excludeLanguagesRaw" placeholder="e.g. hi, ru (optional)" style="margin-top:4px; width:100%; box-sizing:border-box;" />
+        </label></div>
       </section>
       <section id="panel-keys" class="panel">
         <h1>API Keys</h1>

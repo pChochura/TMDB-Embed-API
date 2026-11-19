@@ -267,7 +267,7 @@ Saving in the UI writes only changed keys. Setting a field to empty removes the 
 | Panel | Summary |
 |-------|---------|
 | Core | Port, default providers, default region |
-| Quality / Filters | Min quality presets & codec exclusion JSON |
+| Quality / Filters | Min quality presets, codec exclusion JSON & language filtering |
 | Keys | Add/remove TMDB API keys (rotated randomly) |
 | Advanced | Provider toggles, cache & validation flags |
 | Server Status | Live metrics, provider functional checks |
@@ -482,7 +482,7 @@ Toggle `enableProxy` to activate the internal proxy. This adds lightweight playl
 
 ---
 
-## 🧩 Quality & Codec Filtering
+## 🧩 Quality, Codec & Language Filtering
 - Presets: `all`, `480p`, `720p`, `1080p`, `1440p`, `2160p`.
 - Custom quality JSON example (runtime applies the `default` entry; per-provider keys are preserved for future use):
 ```json
@@ -493,6 +493,12 @@ Toggle `enableProxy` to activate the internal proxy. This adds lightweight playl
 ```json
 { "excludeDV": true, "excludeHDR": false }
 ```
+- **Language Filtering**:
+  - Presets: `All (No Filter)`, `English / Original`, `English + Multi`, `Polish (PL)`, `Custom`.
+  - Custom Allowed Languages: Comma-separated list (e.g. `en, multi, pl`).
+  - Exclude Languages: Optional comma-separated list of language tags to omit (e.g. `hi, ru, es`).
+  - Automatically matches provider-level origins, audio tracks, subtitle tags, and title badges (such as `[PL Lektor]`, `[Hindi]`, `(Dub)`, `Multi Audio`).
+  - Preserved in `utils/user-config.json` via keys `allowedLanguages` and `excludeLanguages` and synced to environment variables `ALLOWED_LANGUAGES` and `EXCLUDE_LANGUAGES`.
 
 ---
 

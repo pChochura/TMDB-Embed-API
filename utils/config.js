@@ -66,6 +66,26 @@ function parseBridgeUrls(raw) {
   return [];
 }
 
+function parseLanguages(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    const arr = raw.map(s => String(s).trim().toLowerCase()).filter(Boolean);
+    return arr.length ? Array.from(new Set(arr)) : null;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const json = parseJsonMaybe(trimmed);
+    if (Array.isArray(json)) {
+      const arr = json.map(s => String(s).trim().toLowerCase()).filter(Boolean);
+      return arr.length ? Array.from(new Set(arr)) : null;
+    }
+    const parts = trimmed.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    return parts.length ? Array.from(new Set(parts)) : null;
+  }
+  return null;
+}
+
 function readOverrideFile() {
   try {
     if (fs.existsSync(OVERRIDE_PATH)) {
@@ -120,6 +140,8 @@ function normalizeConfig(base) {
   cfg.minQualities = parseJsonMaybe(cfg.minQualitiesRaw) || (cfg.minQualitiesRaw ? { default: cfg.minQualitiesRaw } : null);
   cfg.excludeCodecs = parseJsonMaybe(cfg.excludeCodecsRaw) || null;
   cfg.febboxCookies = Array.isArray(cfg.febboxCookies) ? cfg.febboxCookies : parseCookies(cfg.febboxCookies);
+  cfg.allowedLanguages = parseLanguages(cfg.allowedLanguages);
+  cfg.excludeLanguages = parseLanguages(cfg.excludeLanguages);
 
   // Stremio HTTP Addon Bridge URLs support
   const rawBridgeUrls = cfg.stremioBridgeUrls ?? cfg.STREMIO_BRIDGE_URLS ?? null;
@@ -194,6 +216,10 @@ function applyConfigToEnv(cfg){
   if (cfg.defaultProviders) process.env.DEFAULT_PROVIDERS = cfg.defaultProviders.join(',');
   if (cfg.minQualitiesRaw) process.env.MIN_QUALITIES = cfg.minQualitiesRaw; else delete process.env.MIN_QUALITIES;
   if (cfg.excludeCodecsRaw) process.env.EXCLUDE_CODECS = cfg.excludeCodecsRaw; else delete process.env.EXCLUDE_CODECS;
+  if (cfg.allowedLanguages && cfg.allowedLanguages.length) process.env.ALLOWED_LANGUAGES = cfg.allowedLanguages.join(',');
+  else delete process.env.ALLOWED_LANGUAGES;
+  if (cfg.excludeLanguages && cfg.excludeLanguages.length) process.env.EXCLUDE_LANGUAGES = cfg.excludeLanguages.join(',');
+  else delete process.env.EXCLUDE_LANGUAGES;
   if (cfg.febboxCookies && cfg.febboxCookies.length) process.env.FEBBOX_COOKIES = cfg.febboxCookies.join(',');
   else delete process.env.FEBBOX_COOKIES;
   if (cfg.defaultRegion) process.env.DEFAULT_REGION = cfg.defaultRegion; else delete process.env.DEFAULT_REGION;
@@ -247,6 +273,8 @@ function loadConfig() {
     defaultProviders: (process.env.DEFAULT_PROVIDERS || '').split(/[\s,]+/).map(p=>p.trim().toLowerCase()).filter(Boolean),
     minQualitiesRaw: process.env.MIN_QUALITIES || null,
     excludeCodecsRaw: process.env.EXCLUDE_CODECS || null,
+    allowedLanguages: parseLanguages(process.env.ALLOWED_LANGUAGES),
+    excludeLanguages: parseLanguages(process.env.EXCLUDE_LANGUAGES),
     tmdbApiKey: process.env.TMDB_API_KEY || null,
     tmdbApiKeys: parseJsonMaybe(process.env.TMDB_API_KEYS) || null,
     febboxCookies: parseCookies(process.env.FEBBOX_COOKIES),

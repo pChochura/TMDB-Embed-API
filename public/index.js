@@ -143,6 +143,32 @@ function fillForm(data){
 	const codecTa = document.querySelector('textarea[name="excludeCodecsRaw"]');
 	if(mode==='advanced') { codecTa.disabled=false; codecTa.value = excRaw || JSON.stringify({excludeDV:false,excludeHDR:false}); }
 	else { codecTa.disabled=true; codecTa.value=''; }
+	const allowedLangs = override.allowedLanguages !== undefined ? override.allowedLanguages : (merged.allowedLanguages || null);
+	const excLangs = override.excludeLanguages !== undefined ? override.excludeLanguages : (merged.excludeLanguages || null);
+	let langMode = 'all';
+	let rawLangStr = '';
+	if (Array.isArray(allowedLangs) && allowedLangs.length > 0) {
+		rawLangStr = allowedLangs.join(', ');
+		const lower = allowedLangs.map(s => s.toLowerCase());
+		if (lower.length === 1 && (lower[0] === 'en' || lower[0] === 'english')) langMode = 'en';
+		else if (lower.length === 2 && lower.includes('en') && lower.includes('multi')) langMode = 'en-multi';
+		else if (lower.length === 1 && (lower[0] === 'pl' || lower[0] === 'polish')) langMode = 'pl';
+		else langMode = 'custom';
+	} else if (typeof allowedLangs === 'string' && allowedLangs.trim()) {
+		rawLangStr = allowedLangs.trim();
+		langMode = 'custom';
+	}
+	const presetInputL = document.querySelector(`input[name="langPreset"][value="${langMode}"]`) || document.querySelector('input[name="langPreset"][value="all"]');
+	if (presetInputL) presetInputL.checked = true;
+	const langInput = document.querySelector('input[name="allowedLanguagesRaw"]');
+	if (langInput) {
+		if (langMode === 'custom') { langInput.disabled = false; langInput.value = rawLangStr; }
+		else { langInput.disabled = true; langInput.value = rawLangStr; }
+	}
+	const excLangInput = document.querySelector('input[name="excludeLanguagesRaw"]');
+	if (excLangInput) {
+		excLangInput.value = Array.isArray(excLangs) ? excLangs.join(', ') : (excLangs || '');
+	}
 	document.getElementById('currentCfg').textContent = JSON.stringify(merged, null, 2);
 	document.getElementById('overrideCfg').textContent = Object.keys(override).length? JSON.stringify(override,null,2): '(none)';
 	document.getElementById('bootWarn').style.display = (!merged.febboxCookies || merged.febboxCookies.length===0)? 'block':'none';
@@ -231,6 +257,23 @@ async function save(){
 			payload.excludeCodecsRaw = raw || null;
 		}
 	}
+	const lPreset = document.querySelector('input[name="langPreset"]:checked');
+	if (lPreset) {
+		if (lPreset.value === 'all') {
+			payload.allowedLanguages = [];
+		} else if (lPreset.value === 'en') {
+			payload.allowedLanguages = ['en'];
+		} else if (lPreset.value === 'en-multi') {
+			payload.allowedLanguages = ['en', 'multi'];
+		} else if (lPreset.value === 'pl') {
+			payload.allowedLanguages = ['pl'];
+		} else if (lPreset.value === 'custom') {
+			const rawVal = f.elements['allowedLanguagesRaw'] ? f.elements['allowedLanguagesRaw'].value.trim() : '';
+			payload.allowedLanguages = rawVal ? rawVal.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+		}
+	}
+	const excVal = f.elements['excludeLanguagesRaw'] ? f.elements['excludeLanguagesRaw'].value.trim() : '';
+	payload.excludeLanguages = excVal ? excVal.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean) : [];
 	const drSel = f.elements['defaultRegion'];
 	if (drSel) payload.defaultRegion = drSel.value ? drSel.value : null;
 	const cookiesHidden = f.elements['febboxCookiesHidden'];
@@ -323,6 +366,8 @@ async function clearAll(){
 		defaultProviders: [],
 		minQualitiesRaw: 'all',
 		excludeCodecsRaw: JSON.stringify({excludeDV:false,excludeHDR:false}),
+		allowedLanguages: [],
+		excludeLanguages: [],
 		// Explicit empty arrays ensure override wins over any prior env mirror
 		febboxCookies: [],
 		tmdbApiKeys: [],
@@ -596,6 +641,21 @@ document.addEventListener('change', (e)=>{
 		const ta = document.querySelector('textarea[name="excludeCodecsRaw"]');
 		if(t.value==='advanced') { ta.disabled=false; if(!ta.value.trim()) ta.value = JSON.stringify({excludeDV:false,excludeHDR:false}); }
 		else { ta.disabled=true; ta.value=''; }
+		validate();
+	}
+	if(t.name === 'langPreset') {
+		const customField = document.querySelector('input[name="allowedLanguagesRaw"]');
+		if(customField) {
+			if(t.value === 'custom') {
+				customField.disabled = false;
+			} else {
+				customField.disabled = true;
+				if(t.value === 'en') customField.value = 'en';
+				else if(t.value === 'en-multi') customField.value = 'en, multi';
+				else if(t.value === 'pl') customField.value = 'pl';
+				else customField.value = '';
+			}
+		}
 		validate();
 	}
 });
