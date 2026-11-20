@@ -400,6 +400,36 @@ test('polish parses CDA and Vider search HTML accurately into standard stream ob
   assert.ok(viderStreams[0].title.startsWith('[PL Lektor]'));
 });
 
+test('polish parseCDASearchResults filters out CDA Premium items', () => {
+  const cdaHtmlWithPremium = `
+    <div class="video-clip">
+      <a class="video-clip-link autoHide" href="https://www.cda.pl/video/23324482b3/vfilm">
+        <span class="timeElem">01:30:40</span>
+      </a>
+      <div class="text text-video">
+        <a class="link-title-visit" href="https://www.cda.pl/video/23324482b3/vfilm">Shrek (2001) Dubbing PL</a>
+        <span class="hd-ico-elem hd-elem-pos-title">1080p</span>
+        <span class="flag-video-premium">premium</span>
+      </div>
+    </div>
+    <div class="video-clip">
+      <a class="video-clip-link autoHide" href="/video/free123">
+        <span class="timeElem">01:20:00</span>
+      </a>
+      <div class="text text-video">
+        <a class="link-title-visit" href="/video/free123">Shrek Fan Film Lektor PL</a>
+        <span class="hd-ico-elem hd-elem-pos-title">720p</span>
+      </div>
+    </div>
+  `;
+
+  const filteredStreams = parseCDASearchResults(cdaHtmlWithPremium);
+  assert.equal(filteredStreams.length, 1, 'Should filter out the premium /vfilm item and keep the free one');
+  assert.equal(filteredStreams[0].url, 'https://ebd.cda.pl/620x368/free123');
+  assert.equal(filteredStreams[0].quality, '720p');
+  assert.ok(filteredStreams[0].title.includes('Shrek Fan Film'));
+});
+
 test('polish getPolishStreams handles mock scrapers, ranking, and error resilience', async () => {
   // 1. Safe handling when no TMDB or title
   const emptyStreams = await getPolishStreams(null, 'movie', null, null, {});

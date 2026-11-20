@@ -100,15 +100,39 @@ function parseCDASearchResults(html) {
   $('a[href*="/video/"]').each((_, elem) => {
     try {
       const href = $(elem).attr('href') || '';
+      // Immediately skip premium /vfilm links
+      if (href.includes('/vfilm')) return;
+
       const idMatch = href.match(/\/video\/([a-zA-Z0-9]+)/);
       if (!idMatch) return;
 
       const videoId = idMatch[1];
       if (seenIds.has(videoId)) return;
+
+      const container = $(elem).closest('.elem-rts, .video-clip, div');
+
+      // Check for CDA premium markers within the card container
+      const hasPremiumBadge = container.find('.flag-video-premium, .flag-premium, [class*="flag-premium"]').length > 0;
+      const hasVfilmLink = container.find('a[href*="/vfilm"]').length > 0;
+      const isPremiumClass = container.hasClass('video-premium') || container.find('.video-premium').length > 0;
+      if (hasPremiumBadge || hasVfilmLink || isPremiumClass) {
+        return;
+      }
+
       seenIds.add(videoId);
 
-      const rawTitle = $(elem).attr('title') || $(elem).text() || '';
-      const container = $(elem).closest('.elem-rts, .video-clip, div');
+      // Prefer explicit title attribute or link-title-visit anchor if present
+      let rawTitle = $(elem).attr('title');
+      if (!rawTitle) {
+        const titleLink = container.find('a.link-title-visit').first();
+        if (titleLink.length > 0) {
+          rawTitle = titleLink.attr('title') || titleLink.text() || '';
+        }
+      }
+      if (!rawTitle) {
+        rawTitle = $(elem).text() || '';
+      }
+
       const extraText = container.text() || '';
       const fullText = `${rawTitle} ${extraText}`;
 

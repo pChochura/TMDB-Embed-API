@@ -10,6 +10,7 @@ const { createProxyRoutes, processStreamsForProxy } = require('./proxy/proxyServ
 const { resolveImdbId } = require('./utils/tmdb');
 const { applyFilters } = require('./utils/streamFilters');
 const { isFfmpegAvailable, streamRemux } = require('./utils/remux');
+const { validateStream, validateStreams } = require('./utils/streamValidator');
 const syncRouter = require('./routes/sync');
 const { initDb } = require('./db');
 
@@ -336,6 +337,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
   const season = req.query.season ? Number(req.query.season) : null;
   const episode = req.query.episode ? Number(req.query.episode) : null;
   const streaming = req.query.stream === '1';
+  const shouldValidate = req.query.validate === '1' || req.query.check === '1';
   let disconnected = false;
   let heartbeat;
   if (streaming) {
@@ -389,7 +391,10 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
         return [];
       }
       if (streaming && !disconnected) {
-        const streams = formatStreams(r);
+        let streams = formatStreams(r);
+        if (shouldValidate) {
+          streams = await validateStreams(streams, { filterInvalid: true });
+        }
         streamedCount += streams.length;
         metrics.streamsReturned += streams.length;
         sendEvent('provider', { provider: name, durationMs: providerTimings[name], success: true, count: streams.length, streams });
@@ -403,7 +408,10 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
       }
       return;
     }
-    const streams = formatStreams(results.flat());
+    let streams = formatStreams(results.flat());
+    if (shouldValidate) {
+      streams = await validateStreams(streams, { filterInvalid: true });
+    }
     metrics.streamsReturned += streams.length;
     res.json({ success:true, tmdbId, imdbId, count: streams.length, providerTimings, streams });
   } catch (e) {
@@ -436,6 +444,9 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
     let streams = await prov.fetch({ tmdbId, type, season, episode, imdbId, filters:{} });
     const providerTimings = { [prov.name]: Date.now()-t0 };
     streams = applyFilters(streams, prov.name, config.minQualities, config.excludeCodecs, config.allowedLanguages, config.excludeLanguages);
+    if (req.query.validate === '1' || req.query.check === '1') {
+      streams = await validateStreams(streams, { filterInvalid: true });
+    }
     metrics.streamsReturned += streams.length;
     if (config.enableProxy) {
       const serverUrl = `${req.protocol}://${req.get('host')}`;
@@ -447,6 +458,17 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
     metrics.lastError = e.message;
     res.status(500).json({ success:false, error:'INTERNAL_ERROR', message:e.message });
   }
+});
+
+// Validate reachability and check for premium / paywall blocks on a video link
+app.all('/api/validate-stream', async (req, res) => {
+  const url = req.query.url || req.body?.url;
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ success: false, error: 'MISSING_URL', message: 'Parameter "url" is required.' });
+  }
+  const headers = req.body?.headers || {};
+  const validation = await validateStream({ url, headers });
+  return res.json({ success: true, validation });
 });
 
 // Optional on-the-fly HLS-to-MP4 remuxing endpoint (pipes fragmented MP4 via ffmpeg when requested)
@@ -483,6 +505,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log('  GET  /api/streams/:type/:id');
   console.log('  POST /api/streams/:type/:id');
   console.log('  GET  /api/remux/mp4');
+  console.log('  GET  /api/validate-stream?url=...');
   console.log('  POST /api/auth/register');
   console.log('  POST /api/auth/login');
   console.log('  GET  /api/sync/pull');
