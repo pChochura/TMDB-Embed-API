@@ -24,6 +24,41 @@ function authenticateToken(req, res, next) {
   });
 }
 
+function parseRef(url, isTvHint = false) {
+  if (!url || typeof url !== 'string') return { type: 'MOVIE', tmdbId: 0, season: null, episode: null };
+  const isTv = url.startsWith('show_') || url.startsWith('tv_') || Boolean(isTvHint);
+  const clean = url.replace(/^(show_|tv_|movie_)/, '');
+  const parts = clean.split('_');
+  const tmdbId = parseInt(parts[0], 10) || 0;
+  const season = parts[1] !== undefined ? parseInt(parts[1], 10) : null;
+  const episode = parts[2] !== undefined ? parseInt(parts[2], 10) : null;
+  return {
+    type: isTv ? 'TV' : 'MOVIE',
+    tmdbId,
+    season: Number.isFinite(season) ? season : null,
+    episode: Number.isFinite(episode) ? episode : null
+  };
+}
+
+function resolveItemUrl(item, isTvDefault = false) {
+  if (!item) return null;
+  if (item.url && typeof item.url === 'string' && item.url.trim()) {
+    return item.url.trim();
+  }
+  const tmdbId = item.tmdbId ? parseInt(item.tmdbId, 10) : 0;
+  if (!tmdbId) return null;
+  const isTv = item.type === 'TV' || Boolean(item.isTvShow) || isTvDefault;
+  if (isTv) {
+    const season = item.season !== null && item.season !== undefined ? parseInt(item.season, 10) : null;
+    const episode = item.episode !== null && item.episode !== undefined ? parseInt(item.episode, 10) : null;
+    if (season !== null && episode !== null) {
+      return `show_${tmdbId}_${season}_${episode}`;
+    }
+    return `show_${tmdbId}`;
+  }
+  return `movie_${tmdbId}`;
+}
+
 // --- Auth Routes ---
 router.post('/auth/register', async (req, res) => {
   try {
@@ -160,40 +195,56 @@ router.get('/sync/pull', authenticateToken, async (req, res) => {
 
     res.json({
       serverTimestamp: now,
-      progress: progressRows.rows.map((p) => ({
-        url: p.url,
-        parentUrl: p.parent_url || null,
-        progressPercentage: Number(p.progress_percentage || 0),
-        progressMs: Number(p.progress_ms || 0),
-        posterUrl: p.poster_url || '',
-        titlePl: p.title_pl || '',
-        season: p.season !== null && p.season !== undefined ? Number(p.season) : null,
-        episode: p.episode !== null && p.episode !== undefined ? Number(p.episode) : null,
-        seriesTitle: p.series_title || null,
-        episodeTitle: p.episode_title || null,
-        isWatched: Boolean(p.is_watched),
-        updatedAt: Number(p.updated_at)
-      })),
-      watchlist: watchlistRows.rows.map((w) => ({
-        url: w.url,
-        titlePl: w.title_pl || '',
-        posterUrl: w.poster_url || '',
-        backgroundUrl: w.background_url || null,
-        isTvShow: Boolean(w.is_tv_show),
-        year: w.year !== null && w.year !== undefined ? Number(w.year) : null,
-        isDeleted: Boolean(w.is_deleted),
-        updatedAt: Number(w.updated_at)
-      })),
-      favorites: favoritesRows.rows.map((f) => ({
-        url: f.url,
-        titlePl: f.title_pl || '',
-        posterUrl: f.poster_url || '',
-        backgroundUrl: f.background_url || null,
-        isTvShow: Boolean(f.is_tv_show),
-        year: f.year !== null && f.year !== undefined ? Number(f.year) : null,
-        isDeleted: Boolean(f.is_deleted),
-        updatedAt: Number(f.updated_at)
-      })),
+      progress: progressRows.rows.map((p) => {
+        const ref = parseRef(p.url, p.season != null);
+        return {
+          url: p.url,
+          parentUrl: p.parent_url || (ref.type === 'TV' ? `show_${ref.tmdbId}` : p.url),
+          type: ref.type,
+          tmdbId: ref.tmdbId,
+          progressPercentage: Number(p.progress_percentage || 0),
+          progressMs: Number(p.progress_ms || 0),
+          posterUrl: p.poster_url || '',
+          titlePl: p.title_pl || '',
+          season: p.season !== null && p.season !== undefined ? Number(p.season) : ref.season,
+          episode: p.episode !== null && p.episode !== undefined ? Number(p.episode) : ref.episode,
+          seriesTitle: p.series_title || null,
+          episodeTitle: p.episode_title || null,
+          isWatched: Boolean(p.is_watched),
+          hasNextEpisode: Boolean(p.has_next_episode),
+          updatedAt: Number(p.updated_at)
+        };
+      }),
+      watchlist: watchlistRows.rows.map((w) => {
+        const ref = parseRef(w.url, Boolean(w.is_tv_show));
+        return {
+          url: w.url,
+          type: ref.type,
+          tmdbId: ref.tmdbId,
+          titlePl: w.title_pl || '',
+          posterUrl: w.poster_url || '',
+          backgroundUrl: w.background_url || null,
+          isTvShow: Boolean(w.is_tv_show),
+          year: w.year !== null && w.year !== undefined ? Number(w.year) : null,
+          isDeleted: Boolean(w.is_deleted),
+          updatedAt: Number(w.updated_at)
+        };
+      }),
+      favorites: favoritesRows.rows.map((f) => {
+        const ref = parseRef(f.url, Boolean(f.is_tv_show));
+        return {
+          url: f.url,
+          type: ref.type,
+          tmdbId: ref.tmdbId,
+          titlePl: f.title_pl || '',
+          posterUrl: f.poster_url || '',
+          backgroundUrl: f.background_url || null,
+          isTvShow: Boolean(f.is_tv_show),
+          year: f.year !== null && f.year !== undefined ? Number(f.year) : null,
+          isDeleted: Boolean(f.is_deleted),
+          updatedAt: Number(f.updated_at)
+        };
+      }),
       preferences
     });
   } catch (err) {
@@ -257,17 +308,23 @@ router.post('/sync/push', authenticateToken, async (req, res) => {
       // 1. Progress
       if (Array.isArray(progress)) {
         for (const p of progress) {
-          if (!p || !p.url) continue;
+          if (!p) continue;
+          const url = resolveItemUrl(p, Boolean(p.season != null));
+          if (!url) continue;
+          const ref = parseRef(url, Boolean(p.season != null));
+          const parentUrl = p.parentUrl || (ref.type === 'TV' ? `show_${ref.tmdbId}` : url);
+          const season = p.season !== null && p.season !== undefined ? Number(p.season) : ref.season;
+          const episode = p.episode !== null && p.episode !== undefined ? Number(p.episode) : ref.episode;
           await client.query(upsertProgressSql, [
             userId,
-            p.url,
-            p.parentUrl || null,
+            url,
+            parentUrl,
             p.progressPercentage !== undefined ? Number(p.progressPercentage) : 0,
             p.progressMs !== undefined ? Number(p.progressMs) : 0,
             p.posterUrl || '',
             p.titlePl || '',
-            p.season !== null && p.season !== undefined ? Number(p.season) : null,
-            p.episode !== null && p.episode !== undefined ? Number(p.episode) : null,
+            season,
+            episode,
             p.seriesTitle || null,
             p.episodeTitle || null,
             Boolean(p.isWatched),
@@ -280,14 +337,17 @@ router.post('/sync/push', authenticateToken, async (req, res) => {
       if (Array.isArray(watchlist)) {
         const querySql = upsertMediaSql('watchlist');
         for (const w of watchlist) {
-          if (!w || !w.url) continue;
+          if (!w) continue;
+          const url = resolveItemUrl(w, Boolean(w.isTvShow || w.type === 'TV'));
+          if (!url) continue;
+          const isTvShow = w.isTvShow !== undefined ? Boolean(w.isTvShow) : (w.type === 'TV' || url.startsWith('show_'));
           await client.query(querySql, [
             userId,
-            w.url,
+            url,
             w.titlePl || '',
             w.posterUrl || '',
             w.backgroundUrl || null,
-            Boolean(w.isTvShow),
+            isTvShow,
             w.year !== null && w.year !== undefined ? Number(w.year) : null,
             Boolean(w.isDeleted),
             w.updatedAt ? Number(w.updatedAt) : now
@@ -299,14 +359,17 @@ router.post('/sync/push', authenticateToken, async (req, res) => {
       if (Array.isArray(favorites)) {
         const querySql = upsertMediaSql('favorites');
         for (const f of favorites) {
-          if (!f || !f.url) continue;
+          if (!f) continue;
+          const url = resolveItemUrl(f, Boolean(f.isTvShow || f.type === 'TV'));
+          if (!url) continue;
+          const isTvShow = f.isTvShow !== undefined ? Boolean(f.isTvShow) : (f.type === 'TV' || url.startsWith('show_'));
           await client.query(querySql, [
             userId,
-            f.url,
+            url,
             f.titlePl || '',
             f.posterUrl || '',
             f.backgroundUrl || null,
-            Boolean(f.isTvShow),
+            isTvShow,
             f.year !== null && f.year !== undefined ? Number(f.year) : null,
             Boolean(f.isDeleted),
             f.updatedAt ? Number(f.updatedAt) : now
