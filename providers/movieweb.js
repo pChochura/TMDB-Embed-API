@@ -105,13 +105,15 @@ async function getMovieWebStreams(tmdbId, mediaType = 'movie', season = null, ep
     const tmdbType = isTv ? 'tv' : 'movie';
 
     let details = null;
-    try {
-      details = await getDetails(tmdbType, tmdbId);
-    } catch (err) {
-      console.warn(`[MovieWeb] Could not fetch TMDB details for ${tmdbId}: ${err.message}`);
+    if (!ctx?.title) {
+      try {
+        details = await getDetails(tmdbType, tmdbId, ctx?.language);
+      } catch (err) {
+        console.warn(`[MovieWeb] Could not fetch TMDB details for ${tmdbId}: ${err.message}`);
+      }
     }
 
-    const title = (details && (details.title || details.name)) || ctx?.title || '';
+    const title = ctx?.title || (details && (details.title || details.name)) || '';
     if (!title) {
       console.log(`[MovieWeb] No title resolved for TMDB ID: ${tmdbId}`);
       return [];

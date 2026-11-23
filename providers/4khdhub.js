@@ -1658,7 +1658,7 @@ async function getTMDBDetails(tmdbId, mediaType) {
 }
 
 // Main function to get streams for the addon
-async function get4KHDHubStreams(tmdbId, type, season = null, episode = null) {
+async function get4KHDHubStreams(tmdbId, type, season = null, episode = null, ctx = {}) {
     try {
         console.log(`[4KHDHub] Starting search for TMDB ID: ${tmdbId}, Type: ${type}${season ? `, Season: ${season}` : ''}${episode ? `, Episode: ${episode}` : ''}`);
 
@@ -1685,7 +1685,7 @@ async function get4KHDHubStreams(tmdbId, type, season = null, episode = null) {
             const tmdbType = type === 'series' ? 'tv' : type;
 
             // Get TMDB details to get the actual title
-            const tmdbDetails = await getTMDBDetails(tmdbId, tmdbType);
+            const tmdbDetails = (ctx && ctx.title) ? { title: ctx.title, year: ctx.year } : await getTMDBDetails(tmdbId, tmdbType);
             if (!tmdbDetails || !tmdbDetails.title) {
                 console.log(`[4KHDHub] Could not fetch TMDB details for ID: ${tmdbId}`);
                 return [];

@@ -278,3 +278,29 @@ test('premiumsmart maps videos and searchPremiumsmart queries API with mock axio
   assert.ok(streams[0].title.includes('[PL Dubbing]'));
   assert.equal(streams[0].url, 'https://hoster.com/embed/shrek');
 });
+
+test('getPolishStreams respects ctx.language and localized ctx.title from query parameter', async () => {
+  const executedQueries = [];
+  const mockScraper = async (query) => {
+    executedQueries.push(query);
+    return [
+      {
+        title: 'Kraina lodu Dubbing PL 1080p',
+        url: 'https://vider.info/embed/video/kraina123',
+        quality: '1080p',
+        provider: 'polish'
+      }
+    ];
+  };
+
+  const streams = await getPolishStreams(109445, 'movie', null, null, {
+    title: 'Kraina lodu',
+    originalTitle: 'Frozen',
+    language: 'pl',
+    scrapers: [mockScraper]
+  });
+
+  assert.ok(streams.length > 0);
+  assert.ok(executedQueries.some(q => q.includes('Kraina lodu')), 'Queries should use localized Polish title');
+  assert.equal(streams[0].url, 'https://vider.info/embed/video/kraina123');
+});

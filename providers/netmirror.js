@@ -256,7 +256,7 @@ function hdOnly(streams, forceHd) {
     return hd.length ? hd : streams;
 }
 
-async function getNetmirrorStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+async function getNetmirrorStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null, ctx = {}) {
     console.log(`[NetMirror] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
 
     const type = mediaType === 'tv' ? 'series' : 'movie';
@@ -264,8 +264,15 @@ async function getNetmirrorStreams(tmdbId, mediaType = 'movie', seasonNum = null
     const episode = mediaType === 'tv' ? (episodeNum || null) : null;
 
     try {
-        const details = await getDetails(mediaType === 'tv' ? 'tv' : 'movie', tmdbId);
-        const title = (details && (details.title || details.name)) || '';
+        let details = null;
+        if (!ctx?.title) {
+            try {
+                details = await getDetails(mediaType === 'tv' ? 'tv' : 'movie', tmdbId, ctx?.language);
+            } catch (err) {
+                console.warn(`[NetMirror] Could not fetch TMDB details: ${err.message}`);
+            }
+        }
+        const title = ctx?.title || (details && (details.title || details.name)) || '';
         if (!title) {
             console.log(`[NetMirror] No TMDB title resolved for ${tmdbId}`);
             return [];

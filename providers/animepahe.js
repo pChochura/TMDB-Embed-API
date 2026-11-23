@@ -179,16 +179,16 @@ async function getAnimepaheStreams(tmdbId, mediaType = 'movie', season = null, e
     const tmdbType = isTv ? 'tv' : 'movie';
 
     let details = null;
-    if (tmdbId) {
+    if (tmdbId && (!ctx?.title || !ctx?.originalTitle)) {
       try {
-        details = await getDetails(tmdbType, tmdbId);
+        details = await getDetails(tmdbType, tmdbId, ctx?.language);
       } catch (err) {
         console.warn(`[AnimePahe] Could not fetch TMDB details for ${tmdbId}: ${err.message}`);
       }
     }
 
-    const title = (details && (details.name || details.title)) || ctx?.title || '';
-    const originalTitle = (details && (details.original_name || details.original_title)) || '';
+    const title = ctx?.title || (details && (details.name || details.title)) || '';
+    const originalTitle = ctx?.originalTitle || (details && (details.original_name || details.original_title)) || '';
 
     if (!title && !originalTitle) {
       console.log(`[AnimePahe] No title found for TMDB ID: ${tmdbId}`);

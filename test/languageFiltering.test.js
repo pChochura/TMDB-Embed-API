@@ -178,3 +178,28 @@ test('applyFilters combined quality, codec and language filtering', async (t) =>
   assert.equal(res.length, 1);
   assert.equal(res[0].title, 'Stream 1');
 });
+
+test('per-request language query param filtering logic', async (t) => {
+  const sampleStreams = [
+    { id: 1, name: 'MovieWeb', title: 'Generic Movie 1080p' },
+    { id: 2, name: 'Polish [CDA]', title: '[PL Lektor] Film - 1080p', provider: 'polish' }
+  ];
+
+  await t.test('filterLang=1 with lang=pl strictly isolates pl streams', () => {
+    const clientLang = 'pl';
+    const filterLang = '1';
+    const allowedLangs = filterLang === '1' && clientLang ? [clientLang] : null;
+
+    const res = filterByLanguage(sampleStreams, allowedLangs, null);
+    assert.equal(res.length, 1);
+    assert.equal(res[0].id, 2);
+  });
+
+  await t.test('allowedLanguages query parameter overrides global config', () => {
+    const queryAllowed = 'pl,en';
+    const allowedLangs = queryAllowed.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+
+    const res = filterByLanguage(sampleStreams, allowedLangs, null);
+    assert.equal(res.length, 2);
+  });
+});

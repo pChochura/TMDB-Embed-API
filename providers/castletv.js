@@ -286,15 +286,22 @@ function pickPreferredTracks(tracks) {
     return withVideo.length > 0 ? withVideo : tracks;
 }
 
-async function getCastletvStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+async function getCastletvStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null, ctx = {}) {
     console.log(`[CastleTV] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
 
     try {
         const type = mediaType === 'tv' ? 'series' : 'movie';
         const tmdbType = mediaType === 'tv' ? 'tv' : 'movie';
-        const details = await getDetails(tmdbType, tmdbId);
-        const title = (details && (details.title || details.name)) || '';
-        const year = (details && (details.release_date || details.first_air_date || '').slice(0, 4)) || null;
+        let details = null;
+        if (!ctx?.title) {
+            try {
+                details = await getDetails(tmdbType, tmdbId, ctx?.language);
+            } catch (err) {
+                console.warn(`[CastleTV] Could not fetch TMDB details: ${err.message}`);
+            }
+        }
+        const title = ctx?.title || (details && (details.title || details.name)) || '';
+        const year = ctx?.year || (details && (details.release_date || details.first_air_date || '').slice(0, 4)) || null;
         if (!title) {
             console.log(`[CastleTV] No TMDB title resolved for ${tmdbId}`);
             return [];

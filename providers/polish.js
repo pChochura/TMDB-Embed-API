@@ -534,21 +534,25 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
 
     if (effectiveTmdbId) {
       try {
-        details = await getDetails(tmdbType, effectiveTmdbId);
+        details = await getDetails(tmdbType, effectiveTmdbId, effectiveCtx.language || 'pl-PL');
       } catch (err) {
         console.warn(`[Polish] Could not fetch TMDB details for ${effectiveTmdbId}: ${err.message}`);
       }
 
       if (!polishTitle) {
-        try {
-          polishTitle = await getPolishTitle(tmdbType, effectiveTmdbId);
-        } catch {
-          // ignore error fetching polish title
+        if (effectiveCtx.language && String(effectiveCtx.language).toLowerCase().startsWith('pl') && effectiveCtx.title) {
+          polishTitle = effectiveCtx.title;
+        } else {
+          try {
+            polishTitle = await getPolishTitle(tmdbType, effectiveTmdbId);
+          } catch {
+            // ignore error fetching polish title
+          }
         }
       }
     }
 
-    const title = (details && (details.title || details.name)) || effectiveCtx.title || null;
+    const title = effectiveCtx.title || (details && (details.title || details.name)) || polishTitle || null;
     if (!title && !polishTitle) {
       console.log(`[Polish] No title resolved for TMDB ID: ${effectiveTmdbId}`);
       return [];
@@ -627,7 +631,7 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
 
     const targetQuery = {
       title: polishTitle || title,
-      originalTitle: title,
+      originalTitle: effectiveCtx.originalTitle || (details && (details.original_title || details.original_name)) || title,
       year,
       type: isTv ? 'series' : 'movie',
       season: effectiveSeason != null ? parseInt(effectiveSeason, 10) : null,

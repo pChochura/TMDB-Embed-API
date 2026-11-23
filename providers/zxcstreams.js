@@ -233,20 +233,27 @@ function formatSize(bytes) {
     return `${(n / 1e3).toFixed(0)} KB`;
 }
 
-async function getZxcstreamsStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+async function getZxcstreamsStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null, ctx = {}) {
     console.log(`[ZXCStreams] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
 
     try {
         const type = mediaType === 'tv' ? 'tv' : 'movie';
         const tmdbType = mediaType === 'tv' ? 'tv' : 'movie';
-        const details = await getDetails(tmdbType, tmdbId);
-        const title = (details && (details.title || details.name)) || '';
+        let details = null;
+        if (!ctx?.title) {
+            try {
+                details = await getDetails(tmdbType, tmdbId, ctx?.language);
+            } catch (err) {
+                console.warn(`[ZXCStreams] Could not fetch TMDB details: ${err.message}`);
+            }
+        }
+        const title = ctx?.title || (details && (details.title || details.name)) || '';
         if (!title) {
             console.log(`[ZXCStreams] No TMDB title resolved for ${tmdbId}`);
             return [];
         }
         const releaseDate = (details && (details.release_date || details.first_air_date || '').slice(0, 10)) || '';
-        const year = (details && (details.release_date || details.first_air_date || '').slice(0, 4)) || '';
+        const year = ctx?.year || (details && (details.release_date || details.first_air_date || '').slice(0, 4)) || '';
         const imdbId = await resolveImdbId(tmdbType, tmdbId);
         if (!imdbId || !imdbId.startsWith('tt')) {
             console.log(`[ZXCStreams] No IMDB ID resolved for TMDB ${tmdbId}`);

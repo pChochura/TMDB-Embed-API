@@ -358,6 +358,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
   const episode = req.query.episode ? Number(req.query.episode) : null;
   const streaming = req.query.stream === '1';
   const shouldValidate = req.query.validate === '1' || req.query.check === '1';
+  const clientLang = (req.query.lang || req.query.language || '').trim() || null;
   let disconnected = false;
   let heartbeat;
   if (streaming) {
@@ -376,7 +377,12 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
     if (!disconnected && !res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   const formatStreams = streams => {
-    let filtered = applyFilters(streams, 'aggregate', config.minQualities, config.excludeCodecs, config.allowedLanguages, config.excludeLanguages);
+    const allowedLangs = req.query.allowedLanguages
+      ? req.query.allowedLanguages.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      : (req.query.filterLang === '1' && clientLang)
+      ? [clientLang]
+      : config.allowedLanguages;
+    let filtered = applyFilters(streams, 'aggregate', config.minQualities, config.excludeCodecs, allowedLangs, config.excludeLanguages);
     if (config.enableProxy) {
       const serverUrl = `${req.protocol}://${req.get('host')}`;
       filtered = processStreamsForProxy(filtered, serverUrl);
@@ -389,7 +395,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
     const tmdbType = type === 'movie' ? 'movie' : 'tv';
     let tmdbDetails = null;
     try {
-      tmdbDetails = await getDetails(tmdbType, tmdbId);
+      tmdbDetails = await getDetails(tmdbType, tmdbId, clientLang);
     } catch {
       // ignore TMDB details error
     }
@@ -428,6 +434,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
           originalTitle,
           year: expectedYear,
           runtime: expectedRuntime,
+          language: clientLang,
           filters:{}
         });
         providerTimings[name] = Date.now()-t0;
@@ -480,6 +487,7 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
   if (!['movie','series'].includes(type)) return res.status(400).json({ success:false, error:'INVALID_TYPE' });
   const season = req.query.season ? Number(req.query.season) : null;
   const episode = req.query.episode ? Number(req.query.episode) : null;
+  const clientLang = (req.query.lang || req.query.language || '').trim() || null;
   const prov = getProvider(provider);
   if (!prov) return res.status(404).json({ success:false, error:'PROVIDER_NOT_FOUND' });
   if (!prov.enabled) return res.status(503).json({ success:false, error:'PROVIDER_DISABLED' });
@@ -489,7 +497,7 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
     const tmdbType = type === 'movie' ? 'movie' : 'tv';
     let tmdbDetails = null;
     try {
-      tmdbDetails = await getDetails(tmdbType, tmdbId);
+      tmdbDetails = await getDetails(tmdbType, tmdbId, clientLang);
     } catch {
       // ignore TMDB details error
     }
@@ -516,10 +524,16 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
       originalTitle,
       year: expectedYear,
       runtime: expectedRuntime,
+      language: clientLang,
       filters:{}
     });
     const providerTimings = { [prov.name]: Date.now()-t0 };
-    streams = applyFilters(streams, prov.name, config.minQualities, config.excludeCodecs, config.allowedLanguages, config.excludeLanguages);
+    const allowedLangs = req.query.allowedLanguages
+      ? req.query.allowedLanguages.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean)
+      : (req.query.filterLang === '1' && clientLang)
+      ? [clientLang]
+      : config.allowedLanguages;
+    streams = applyFilters(streams, prov.name, config.minQualities, config.excludeCodecs, allowedLangs, config.excludeLanguages);
     if (req.query.validate === '1' || req.query.check === '1') {
       streams = await validateStreams(streams, { filterInvalid: true, expectedRuntimeMinutes: expectedRuntime });
     }

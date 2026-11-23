@@ -60,14 +60,21 @@ function linksToStreams(links, labelSuffix = '') {
     }));
 }
 
-async function getHdghartvStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+async function getHdghartvStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null, ctx = {}) {
     console.log(`[HDGharTV] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
 
     try {
         const kind = mediaType === 'tv' ? 'series' : 'movie';
         const tmdbType = mediaType === 'tv' ? 'tv' : 'movie';
-        const details = await getDetails(tmdbType, tmdbId);
-        const title = (details && (details.title || details.name)) || '';
+        let details = null;
+        if (!ctx?.title) {
+            try {
+                details = await getDetails(tmdbType, tmdbId, ctx?.language);
+            } catch (err) {
+                console.warn(`[HDGharTV] Could not fetch TMDB details: ${err.message}`);
+            }
+        }
+        const title = ctx?.title || (details && (details.title || details.name)) || '';
         if (!title) {
             console.log(`[HDGharTV] No TMDB title resolved for ${tmdbId}`);
             return [];
