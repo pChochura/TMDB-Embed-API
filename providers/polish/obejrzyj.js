@@ -105,8 +105,29 @@ async function searchObejrzyj(params = {}, options = {}) {
     });
 
     const searchData = extractBootstrapData(searchRes.data);
-    const results = searchData?.loaders?.searchPage?.results || [];
-    const matchedItem = findBestObejrzyjItem(results, params);
+    let results = searchData?.loaders?.searchPage?.results || [];
+    let matchedItem = findBestObejrzyjItem(results, params);
+
+    // Fallback search with original title if no match found
+    if (!matchedItem && params.originalTitle && params.originalTitle !== query) {
+      const origQuery = cleanColonTitle(params.originalTitle);
+      try {
+        const origRes = await axiosInstance.get(`${BASE_URL}/search/${encodeURIComponent(origQuery)}`, {
+          headers: {
+            'User-Agent': DEFAULT_UA,
+            'Referer': BASE_URL,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+          },
+          timeout
+        });
+        const origData = extractBootstrapData(origRes.data);
+        const origResults = origData?.loaders?.searchPage?.results || [];
+        matchedItem = findBestObejrzyjItem(origResults, { ...params, title: origQuery, polishTitle: query });
+      } catch {
+        // ignore fallback search error
+      }
+    }
+
     if (!matchedItem || !matchedItem.id) return [];
 
     const isTv = params.type === 'tv' || params.type === 'series';

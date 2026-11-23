@@ -277,7 +277,8 @@ function parseCDASearchResults(html, isKidsOrAnimation = false) {
  */
 async function scrapeCDA(query, options = {}) {
   const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = false } = options;
-  const searchUrl = `https://www.cda.pl/info/${encodeURIComponent(query)}`;
+  const cleanQuery = String(query).replace(/[:]/g, ' ').replace(/\s+/g, ' ').trim();
+  const searchUrl = `https://www.cda.pl/info/${encodeURIComponent(cleanQuery)}`;
   try {
     const res = await axiosInstance.get(searchUrl, {
       headers: {
@@ -666,6 +667,11 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
               const scored = scoreCandidate(targetQuery, candidate);
               if (scored.disqualified) {
                 console.log(`[Polish] Discarding mismatched stream "${item.title}": ${scored.disqualificationReason}`);
+                continue;
+              }
+              // Discard low relevance mismatches when running real scrapers
+              if (!hasCustomScrapers && (scored.breakdown?.textScore < 0.25 || scored.score < 0.35)) {
+                console.log(`[Polish] Discarding mismatched stream "${item.title}": low_text_score`);
                 continue;
               }
             }
