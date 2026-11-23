@@ -31,6 +31,8 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - SYNC_JWT_SECRET=${SYNC_JWT_SECRET:-filman_sync_secret_key_change_me}
+      # Admin UI password (if omitted, falls back to utils/auth-users.json default 'change-me')
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     ports:
       - "8787:8787"
     volumes:
