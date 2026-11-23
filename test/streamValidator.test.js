@@ -93,6 +93,42 @@ chunklist_720p.m3u8`;
   const emptyM3u8 = `#EXTM3U\n`;
   assert.equal(checkM3u8Content(emptyM3u8).valid, false);
   assert.equal(checkM3u8Content(emptyM3u8).reason, 'no_stream_segments_or_variants');
+
+  // Duration checking
+  const trailerM3u8 = `#EXTM3U
+#EXT-X-VERSION:3
+#EXTINF:60.0,
+seg1.ts
+#EXTINF:60.0,
+seg2.ts
+#EXT-X-ENDLIST`;
+  // Expected 120 min film, but got 2 min trailer
+  const trailerCheck = checkM3u8Content(trailerM3u8, { expectedRuntimeMinutes: 120 });
+  assert.equal(trailerCheck.valid, false);
+  assert.equal(trailerCheck.reason, 'trailer_or_sample_detected');
+
+  // Mismatch duration (45 min show when 130 min film expected)
+  const mismatchM3u8 = `#EXTM3U
+#EXT-X-VERSION:3
+#EXTINF:1350.0,
+seg1.ts
+#EXTINF:1350.0,
+seg2.ts
+#EXT-X-ENDLIST`; // 2700s = 45 min
+  const mismatchCheck = checkM3u8Content(mismatchM3u8, { expectedRuntimeMinutes: 130 });
+  assert.equal(mismatchCheck.valid, false);
+  assert.equal(mismatchCheck.reason, 'duration_mismatch');
+
+  // Acceptable duration (125 min stream for 120 min film, ~4% diff)
+  const matchingM3u8 = `#EXTM3U
+#EXT-X-VERSION:3
+#EXTINF:3750.0,
+seg1.ts
+#EXTINF:3750.0,
+seg2.ts
+#EXT-X-ENDLIST`; // 7500s = 125 min
+  const matchingCheck = checkM3u8Content(matchingM3u8, { expectedRuntimeMinutes: 120 });
+  assert.equal(matchingCheck.valid, true);
 });
 
 test('streamValidator validateStream checks CDA embeds with mock axios', async () => {

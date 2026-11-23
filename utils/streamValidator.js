@@ -120,9 +120,30 @@ function checkGenericEmbedHtml(html) {
 }
 
 /**
+ * Calculate total duration from an HLS playlist by summing #EXTINF values
+ * @param {string} text - M3U8 text
+ * @returns {number|null} Total duration in seconds, or null if live / no EXTINF
+ */
+function parseM3u8Duration(text) {
+  if (!text || typeof text !== 'string') return null;
+  const regex = /#EXTINF:([\d.]+)/g;
+  let match;
+  let totalSec = 0;
+  let found = false;
+  while ((match = regex.exec(text)) !== null) {
+    const sec = parseFloat(match[1]);
+    if (!isNaN(sec)) {
+      totalSec += sec;
+      found = true;
+    }
+  }
+  return found ? Math.round(totalSec) : null;
+}
+
+/**
  * Check direct HLS playlist (.m3u8) validity
  */
-function checkM3u8Content(text) {
+function checkM3u8Content(text, options = {}) {
   if (!text || typeof text !== 'string') {
     return { valid: false, status: 'invalid_media', reason: 'empty_playlist' };
   }
@@ -141,7 +162,44 @@ function checkM3u8Content(text) {
     return { valid: false, status: 'invalid_media', reason: 'no_stream_segments_or_variants' };
   }
 
-  return { valid: true, status: 'valid' };
+  const durationSec = parseM3u8Duration(text);
+  const isVod = text.includes('#EXT-X-ENDLIST');
+
+  // If expected runtime is supplied and this is a complete VOD playlist
+  const expectedRuntimeSec = options.expectedRuntimeSec ||
+    (options.expectedRuntimeMinutes ? options.expectedRuntimeMinutes * 60 : null) ||
+    (options.expectedRuntime ? options.expectedRuntime * 60 : null);
+
+  if (isVod && durationSec !== null && expectedRuntimeSec) {
+    // Catch trailers/previews (< 5 min when > 15 min expected)
+    if (expectedRuntimeSec > 15 * 60 && durationSec < 5 * 60) {
+      return {
+        valid: false,
+        status: 'invalid_media',
+        reason: 'trailer_or_sample_detected',
+        durationSec,
+        expectedRuntimeSec,
+      };
+    }
+
+    // Check tolerance window (35% threshold)
+    const ratio = durationSec / expectedRuntimeSec;
+    if (ratio < 0.65 || ratio > 1.45) {
+      return {
+        valid: false,
+        status: 'invalid_media',
+        reason: 'duration_mismatch',
+        durationSec,
+        expectedRuntimeSec,
+      };
+    }
+  }
+
+  const result = { valid: true, status: 'valid' };
+  if (options.includeDuration && durationSec !== null) {
+    result.durationSec = durationSec;
+  }
+  return result;
 }
 
 /**
@@ -241,7 +299,7 @@ async function validateStream(stream, options = {}) {
       }
 
       if (url.includes('.m3u8')) {
-        const m3u8Check = checkM3u8Content(res.data);
+        const m3u8Check = checkM3u8Content(res.data, options);
         const result = { ...m3u8Check, url };
         setCache(url, result);
         return result;
@@ -352,6 +410,7 @@ module.exports = {
   checkCdaHtml,
   checkGenericEmbedHtml,
   checkM3u8Content,
+  parseM3u8Duration,
   clearValidationCache,
   getValidationCacheStats,
   DEFAULT_CACHE_TTL_MS

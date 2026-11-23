@@ -113,8 +113,8 @@ function scoreYear(query, candidate) {
   const diff = Math.abs(query - candidate);
   if (diff === 0) return 1;
   if (diff === 1) return 0.6;
-  if (diff === 2) return 0.3;
-  return 0.05;
+  if (diff === 2) return 0.1;
+  return 0;
 }
 
 function scoreType(query, candidate) {
@@ -124,10 +124,33 @@ function scoreType(query, candidate) {
 
 function scoreSeasonEpisode(query, candidate) {
   if (query.type !== 'series') return 1;
-  if (query.season == null || candidate.season == null) return 0.7;
-  if (query.season !== candidate.season) return 0.15;
-  if (query.episode == null || candidate.episode == null) return 1;
-  return query.episode === candidate.episode ? 1 : 0.6;
+  if (query.season == null || candidate.season == null) {
+    if (query.episode != null && candidate.episode != null && query.episode !== candidate.episode) {
+      return 0;
+    }
+    return 0.7;
+  }
+  if (query.season !== candidate.season) return 0;
+  if (query.episode != null && candidate.episode != null) {
+    return query.episode === candidate.episode ? 1 : 0;
+  }
+  return 0.8;
+}
+
+function scoreDuration(queryDurationSec, candidateDurationSec) {
+  if (!queryDurationSec || !candidateDurationSec) return 1;
+  const q = Number(queryDurationSec);
+  const c = Number(candidateDurationSec);
+  if (isNaN(q) || isNaN(c) || q <= 0 || c <= 0) return 1;
+
+  // Hard reject trailers or samples (< 5 min for full length media > 15 min)
+  if (q > 15 * 60 && c < 5 * 60) return 0;
+
+  const ratio = c / q;
+  if (ratio >= 0.8 && ratio <= 1.25) return 1;
+  if (ratio >= 0.7 && ratio <= 1.35) return 0.7;
+  if (ratio >= 0.5 && ratio <= 1.5) return 0.3;
+  return 0;
 }
 
 function round(n) {
@@ -139,10 +162,58 @@ function scoreCandidate(query, candidate) {
   const year = scoreYear(query.year, candidate.year);
   const type = scoreType(query.type, candidate.type);
   const seasonEpisode = scoreSeasonEpisode(query, candidate);
-  const score = text.score * 0.6 + year * 0.1 + type * 0.2 + seasonEpisode * 0.1;
+  const duration = scoreDuration(
+    query.duration || query.runtimeSeconds || (query.runtime ? query.runtime * 60 : null),
+    candidate.duration || candidate.runtimeSeconds || (candidate.runtime ? candidate.runtime * 60 : null)
+  );
+
+  // Hard disqualifiers to prevent severe mismatches:
+  // 1. Explicit season or episode mismatch on TV series
+  const hasSeasonMismatch = query.type === 'series' && seasonEpisode === 0;
+  // 2. Year difference > 1 on movies (e.g. remakes/reboots or unrelated homonymous titles)
+  const hasYearMismatch = query.year && candidate.year && Math.abs(query.year - candidate.year) > 1;
+  // 3. Duration mismatch (e.g. trailers, samples, or wrong cuts/episodes)
+  const hasDurationMismatch = duration === 0;
+  // 4. Media type mismatch (e.g. movie vs series)
+  const hasTypeMismatch = query.type && candidate.type && query.type !== candidate.type;
+
+  const isDisqualified = hasSeasonMismatch || hasYearMismatch || hasDurationMismatch || hasTypeMismatch;
+  const disqualificationReason = hasSeasonMismatch
+    ? 'season_episode_mismatch'
+    : hasYearMismatch
+    ? 'year_mismatch'
+    : hasDurationMismatch
+    ? 'duration_mismatch'
+    : hasTypeMismatch
+    ? 'type_mismatch'
+    : null;
+
+  if (isDisqualified) {
+    return {
+      score: 0,
+      matchedOn: text.matchedOn,
+      disqualified: true,
+      disqualificationReason,
+      breakdown: {
+        textScore: round(text.score),
+        exact: round(text.breakdown.exact),
+        normalized: round(text.breakdown.normalized),
+        fuzzy: round(text.breakdown.fuzzy),
+        wholeWord: round(text.breakdown.wholeWord),
+        startsWith: round(text.breakdown.startsWith),
+        year: round(year),
+        type: round(type),
+        seasonEpisode: round(seasonEpisode),
+        duration: round(duration),
+      },
+    };
+  }
+
+  const score = text.score * 0.5 + year * 0.15 + type * 0.15 + seasonEpisode * 0.1 + duration * 0.1;
   return {
     score: Math.min(1, Math.max(0, score)),
     matchedOn: text.matchedOn,
+    disqualified: false,
     breakdown: {
       textScore: round(text.score),
       exact: round(text.breakdown.exact),
@@ -153,6 +224,7 @@ function scoreCandidate(query, candidate) {
       year: round(year),
       type: round(type),
       seasonEpisode: round(seasonEpisode),
+      duration: round(duration),
     },
   };
 }
@@ -263,4 +335,4 @@ function buildRetryTitleVariants(opts) {
   return [...new Set(variants)];
 }
 
-module.exports = { findBestMatch, findBestMatchWithRetry, buildRetryTitleVariants, scoreCandidate, normalizeStripQuality };
+module.exports = { findBestMatch, findBestMatchWithRetry, buildRetryTitleVariants, scoreCandidate, scoreDuration, normalizeStripQuality };

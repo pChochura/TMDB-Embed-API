@@ -7,7 +7,7 @@ const { authenticate, issueSession, requireAuth, getSession, updatePassword, env
 const path = require('path');
 const { listProviders, getProvider, getCookieStats } = require('./providers/registry');
 const { createProxyRoutes, processStreamsForProxy } = require('./proxy/proxyServer');
-const { resolveImdbId } = require('./utils/tmdb');
+const { resolveImdbId, getDetails } = require('./utils/tmdb');
 const { applyFilters } = require('./utils/streamFilters');
 const { isFfmpegAvailable, streamRemux } = require('./utils/remux');
 const { validateStream, validateStreams } = require('./utils/streamValidator');
@@ -88,6 +88,26 @@ process.exit = function(code){
 setImmediate(()=>console.log('[diagnostic] post-start setImmediate fired'));
 app.use(cors());
 app.use(express.json());
+
+// API Key Authentication Middleware
+const API_SECRET_KEY = process.env.API_SECRET_KEY || "";
+
+function requireApiKey(req, res, next) {
+  if (!API_SECRET_KEY) return next();
+  const authHeader = req.headers['authorization'];
+  const incomingKey = req.headers['x-api-key'] || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null);
+  if (incomingKey === API_SECRET_KEY) return next();
+
+  // Allow local loopback (internal container healthchecks and local monitoring)
+  const clientIp = req.ip || req.socket?.remoteAddress;
+  if (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1') {
+    return next();
+  }
+
+  return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: 'Valid API key required' });
+}
+
+app.use('/api', requireApiKey);
 
 // Auth & Preferences Sync API
 app.use('/api', syncRouter);
@@ -367,7 +387,24 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
   try {
     metrics.streamRequests++;
     const tmdbType = type === 'movie' ? 'movie' : 'tv';
+    let tmdbDetails = null;
+    try {
+      tmdbDetails = await getDetails(tmdbType, tmdbId);
+    } catch {
+      // ignore TMDB details error
+    }
     const imdbId = await resolveImdbId(tmdbType, tmdbId); if (imdbId) metrics.tmdbToImdbLookups++;
+    const expectedYear = tmdbDetails?.release_date
+      ? parseInt(tmdbDetails.release_date.slice(0, 4), 10)
+      : tmdbDetails?.first_air_date
+      ? parseInt(tmdbDetails.first_air_date.slice(0, 4), 10)
+      : null;
+    const expectedRuntime = tmdbDetails?.runtime ||
+      (Array.isArray(tmdbDetails?.episode_run_time) && tmdbDetails.episode_run_time[0]) ||
+      null;
+    const expectedTitle = tmdbDetails?.title || tmdbDetails?.name || null;
+    const originalTitle = tmdbDetails?.original_title || tmdbDetails?.original_name || null;
+
     if (disconnected) return;
     const selectedProviders = (config.defaultProviders.length ? config.defaultProviders : listProviders().map(p=>p.name));
     const providerTimings = {};
@@ -381,7 +418,18 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
       try {
         console.log(`[api] invoking provider ${name} for tmdbId=${tmdbId}`);
         const t0 = Date.now();
-        r = await prov.fetch({ tmdbId, type, season, episode, imdbId, filters:{ } });
+        r = await prov.fetch({
+          tmdbId,
+          type,
+          season,
+          episode,
+          imdbId,
+          title: expectedTitle,
+          originalTitle,
+          year: expectedYear,
+          runtime: expectedRuntime,
+          filters:{}
+        });
         providerTimings[name] = Date.now()-t0;
         console.log(`[api] provider ${name} returned ${Array.isArray(r)?r.length:0} streams`);
       } catch (e) {
@@ -393,7 +441,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
       if (streaming && !disconnected) {
         let streams = formatStreams(r);
         if (shouldValidate) {
-          streams = await validateStreams(streams, { filterInvalid: true });
+          streams = await validateStreams(streams, { filterInvalid: true, expectedRuntimeMinutes: expectedRuntime });
         }
         streamedCount += streams.length;
         metrics.streamsReturned += streams.length;
@@ -410,7 +458,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
     }
     let streams = formatStreams(results.flat());
     if (shouldValidate) {
-      streams = await validateStreams(streams, { filterInvalid: true });
+      streams = await validateStreams(streams, { filterInvalid: true, expectedRuntimeMinutes: expectedRuntime });
     }
     metrics.streamsReturned += streams.length;
     res.json({ success:true, tmdbId, imdbId, count: streams.length, providerTimings, streams });
@@ -439,13 +487,41 @@ app.get('/api/streams/:provider/:type/:tmdbId', async (req,res) => {
     metrics.streamRequests++;
     metrics.providerCalls[prov.name] = (metrics.providerCalls[prov.name]||0)+1;
     const tmdbType = type === 'movie' ? 'movie' : 'tv';
+    let tmdbDetails = null;
+    try {
+      tmdbDetails = await getDetails(tmdbType, tmdbId);
+    } catch {
+      // ignore TMDB details error
+    }
     const imdbId = await resolveImdbId(tmdbType, tmdbId); if (imdbId) metrics.tmdbToImdbLookups++;
+    const expectedYear = tmdbDetails?.release_date
+      ? parseInt(tmdbDetails.release_date.slice(0, 4), 10)
+      : tmdbDetails?.first_air_date
+      ? parseInt(tmdbDetails.first_air_date.slice(0, 4), 10)
+      : null;
+    const expectedRuntime = tmdbDetails?.runtime ||
+      (Array.isArray(tmdbDetails?.episode_run_time) && tmdbDetails.episode_run_time[0]) ||
+      null;
+    const expectedTitle = tmdbDetails?.title || tmdbDetails?.name || null;
+    const originalTitle = tmdbDetails?.original_title || tmdbDetails?.original_name || null;
+
     const t0 = Date.now();
-    let streams = await prov.fetch({ tmdbId, type, season, episode, imdbId, filters:{} });
+    let streams = await prov.fetch({
+      tmdbId,
+      type,
+      season,
+      episode,
+      imdbId,
+      title: expectedTitle,
+      originalTitle,
+      year: expectedYear,
+      runtime: expectedRuntime,
+      filters:{}
+    });
     const providerTimings = { [prov.name]: Date.now()-t0 };
     streams = applyFilters(streams, prov.name, config.minQualities, config.excludeCodecs, config.allowedLanguages, config.excludeLanguages);
     if (req.query.validate === '1' || req.query.check === '1') {
-      streams = await validateStreams(streams, { filterInvalid: true });
+      streams = await validateStreams(streams, { filterInvalid: true, expectedRuntimeMinutes: expectedRuntime });
     }
     metrics.streamsReturned += streams.length;
     if (config.enableProxy) {

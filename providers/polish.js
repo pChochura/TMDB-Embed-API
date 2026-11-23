@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { getDetails, getPolishTitle } = require('../utils/tmdb');
+const { scoreCandidate } = require('../utils/titleMatch');
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -42,6 +43,19 @@ function detectQuality(text = '') {
   if (/\b(480p|sd)\b/i.test(str)) return '480p';
   if (/\b(360p)\b/i.test(str)) return '360p';
   return 'Auto';
+}
+
+/**
+ * Parse duration string (e.g. "01:42:15" or "45:30") into total seconds
+ */
+function parseDurationText(text = '') {
+  if (!text) return null;
+  const match = String(text).match(/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/);
+  if (!match) return null;
+  const hours = match[1] ? parseInt(match[1], 10) : 0;
+  const minutes = parseInt(match[2], 10);
+  const seconds = parseInt(match[3], 10);
+  return hours * 3600 + minutes * 60 + seconds;
 }
 
 /**
@@ -136,6 +150,9 @@ function parseCDASearchResults(html) {
       const extraText = container.text() || '';
       const fullText = `${rawTitle} ${extraText}`;
 
+      const timeText = container.find('.timeElem, .time, .time-badge, [class*="time"]').text() || '';
+      const durationSec = parseDurationText(timeText) || parseDurationText(extraText);
+
       const qualityBadge = container.find('.quality, .hd-badge, span[class*="quality"]').text() || '';
       const quality = detectQuality(`${qualityBadge} ${fullText}`);
       const tag = detectAudioTag(fullText);
@@ -147,6 +164,7 @@ function parseCDASearchResults(html) {
         url: `https://ebd.cda.pl/620x368/${videoId}`,
         quality: quality,
         provider: 'polish',
+        duration: durationSec || null,
         headers: {
           'User-Agent': DEFAULT_UA,
           'Referer': 'https://www.cda.pl/'
@@ -211,6 +229,7 @@ function parseViderSearchResults(html) {
       const quality = detectQuality(fullText);
       const tag = detectAudioTag(fullText);
       const cleaned = cleanTitle(rawTitle) || `Wideo ${videoId}`;
+      const durationSec = parseDurationText(extraText);
 
       streams.push({
         name: 'Polish [Vider]',
@@ -218,6 +237,7 @@ function parseViderSearchResults(html) {
         url: `https://vider.info/embed/video/${videoId}`,
         quality: quality,
         provider: 'polish',
+        duration: durationSec || null,
         headers: {
           'User-Agent': DEFAULT_UA,
           'Referer': 'https://vider.info/'
@@ -388,6 +408,19 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       }
     }
 
+    const targetDuration = (details && (details.runtime ? details.runtime * 60 : (details.episode_run_time && details.episode_run_time[0] * 60))) ||
+      (effectiveCtx.runtime ? effectiveCtx.runtime * 60 : null) || null;
+
+    const targetQuery = {
+      title: polishTitle || title,
+      originalTitle: title,
+      year,
+      type: isTv ? 'series' : 'movie',
+      season: effectiveSeason != null ? parseInt(effectiveSeason, 10) : null,
+      episode: effectiveEpisode != null ? parseInt(effectiveEpisode, 10) : null,
+      duration: targetDuration,
+    };
+
     const results = await Promise.allSettled(scrapeTasks);
     const combined = [];
     const seenUrls = new Set();
@@ -396,6 +429,29 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       if (r.status === 'fulfilled' && Array.isArray(r.value)) {
         for (const item of r.value) {
           if (item && item.url && !seenUrls.has(item.url)) {
+            if (targetQuery.title) {
+              const seMatch = (item.title || '').match(/[sS](\d{1,2})[eE](\d{1,2})|(\d{1,2})x(\d{1,2})/);
+              const candSeason = seMatch ? parseInt(seMatch[1] || seMatch[3], 10) : null;
+              const candEpisode = seMatch ? parseInt(seMatch[2] || seMatch[4], 10) : null;
+              const yearMatch = (item.title || '').match(/\b(19\d\d|20\d\d)\b/);
+              const candYear = yearMatch ? parseInt(yearMatch[1], 10) : null;
+
+              const candidate = {
+                title: item.title,
+                year: candYear,
+                type: isTv ? 'series' : 'movie',
+                season: candSeason,
+                episode: candEpisode,
+                duration: item.duration || null,
+              };
+
+              const scored = scoreCandidate(targetQuery, candidate);
+              if (scored.disqualified) {
+                console.log(`[Polish] Discarding mismatched stream "${item.title}": ${scored.disqualificationReason}`);
+                continue;
+              }
+            }
+
             seenUrls.add(item.url);
             const tag = detectAudioTag(item.title || '');
             const quality = item.quality || detectQuality(item.title || '');
@@ -446,5 +502,6 @@ module.exports = {
   scrapeCDA,
   parseViderSearchResults,
   scrapeVider,
-  parseFilmanObejrzyjResults
+  parseFilmanObejrzyjResults,
+  parseDurationText
 };
