@@ -9,6 +9,7 @@ const {
 const {
   parseSearchResponse: parseBajeczkiSearch,
   parseEmbedUrls: parseBajeczkiEmbeds,
+  detectBajeczkiAudioTag,
   searchBajeczki24
 } = require('../providers/polish/bajeczki24');
 const {
@@ -129,6 +130,36 @@ test('bajeczki24 searchBajeczki24 executes search and maps streams with mock axi
   assert.ok(streams[0].title.includes('[PL Dubbing]'));
   assert.equal(streams[0].url, 'https://bysesukior.com/e/shrek123');
   assert.equal(streams[0].quality, '1080p');
+});
+
+test('bajeczki24 searches non-kids content and detects [PL Lektor] audio tag', async () => {
+  const mockAxios = {
+    post: async () => ({
+      data: {
+        hits: [
+          {
+            title: 'Gladiator',
+            releaseYear: 2000,
+            path: '/filmy/akcja/gladiator/',
+            categories: ['Akcja', 'Dramat']
+          }
+        ]
+      }
+    }),
+    get: async () => ({
+      data: '<html><iframe src="https://bysesukior.com/e/gladiator123"></iframe></html>'
+    })
+  };
+
+  const streams = await searchBajeczki24(
+    { title: 'Gladiator', polishTitle: 'Gladiator', year: 2000, type: 'movie' },
+    { axiosInstance: mockAxios, isKidsOrAnimation: false }
+  );
+
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].name, 'Polish [Bajeczki24]');
+  assert.ok(streams[0].title.includes('[PL Lektor]'));
+  assert.equal(streams[0].url, 'https://bysesukior.com/e/gladiator123');
 });
 
 test('obejrzyj extracts bootstrapData, matches by TMDB/IMDb, and detects audio tags', () => {

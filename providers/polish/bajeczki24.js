@@ -37,10 +37,38 @@ function parseSearchResponse(data) {
       url: `${BASE_URL}${path}`,
       path,
       type,
-      year
+      year,
+      categories: hit.categories || []
     });
   }
   return results;
+}
+
+/**
+ * Detect language / audio tag for Bajeczki24 streams
+ */
+function detectBajeczkiAudioTag(item = {}, isKidsOrAnimation = false) {
+  const path = String(item.path || '').toLowerCase();
+  const name = String(item.name || item.title || '').toLowerCase();
+  const categories = (item.categories || []).map((c) => String(c).toLowerCase());
+
+  if (name.includes('dubbing') || name.includes('dub')) return '[PL Dubbing]';
+  if (name.includes('lektor')) return '[PL Lektor]';
+  if (name.includes('napisy') || name.includes('sub')) return '[PL Napisy]';
+
+  if (
+    isKidsOrAnimation ||
+    path.startsWith('/bajki/') ||
+    path.includes('/animowane/') ||
+    categories.includes('animowane') ||
+    categories.includes('animacja') ||
+    categories.includes('dla dzieci') ||
+    categories.includes('familijne')
+  ) {
+    return '[PL Dubbing]';
+  }
+
+  return '[PL Lektor]';
 }
 
 /**
@@ -94,7 +122,7 @@ async function apiSearch(query, { timeout = 6000, axiosInstance = axios } = {}) 
  * Scrape Bajeczki24 for matching movie or episode embed streams
  */
 async function searchBajeczki24(params = {}, options = {}) {
-  const { timeout = 6000, axiosInstance = axios } = options;
+  const { timeout = 6000, axiosInstance = axios, isKidsOrAnimation = false } = options;
   const rawTitle = params.title || params.polishTitle || '';
   if (!rawTitle) return [];
 
@@ -131,11 +159,12 @@ async function searchBajeczki24(params = {}, options = {}) {
 
     const embeds = parseEmbedUrls(pageRes.data);
     const streams = [];
+    const audioTag = detectBajeczkiAudioTag(matches[0], isKidsOrAnimation);
 
     for (const embedUrl of embeds) {
       streams.push({
         name: 'Polish [Bajeczki24]',
-        title: `[PL Dubbing] ${matches[0].name || query} - 1080p`,
+        title: `${audioTag} ${matches[0].name || query} - 1080p`,
         url: embedUrl,
         quality: '1080p',
         provider: 'polish',
@@ -155,6 +184,7 @@ async function searchBajeczki24(params = {}, options = {}) {
 
 module.exports = {
   searchBajeczki24,
+  detectBajeczkiAudioTag,
   parseSearchResponse,
   parseEmbedUrls,
   apiSearch
