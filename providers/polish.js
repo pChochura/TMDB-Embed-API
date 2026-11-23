@@ -665,13 +665,10 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
               };
 
               const scored = scoreCandidate(targetQuery, candidate);
-              if (scored.disqualified) {
-                console.log(`[Polish] Discarding mismatched stream "${item.title}": ${scored.disqualificationReason}`);
-                continue;
-              }
-              // Discard low relevance mismatches when running real scrapers
-              if (!hasCustomScrapers && (scored.breakdown?.textScore < 0.25 || scored.score < 0.35)) {
-                console.log(`[Polish] Discarding mismatched stream "${item.title}": low_text_score`);
+              const wholeWord = scored.breakdown?.wholeWord ?? 1;
+              const startsWith = scored.breakdown?.startsWith ?? 1;
+              if (scored.disqualified || (!hasCustomScrapers && wholeWord === 0 && startsWith === 0)) {
+                console.log(`[Polish] Discarding mismatched stream "${item.title}": ${scored.disqualificationReason || 'no_title_match'}`);
                 continue;
               }
             }
