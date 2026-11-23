@@ -596,8 +596,9 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
     // If default scrapers are active, run structured high-value scrapers
     if (!hasCustomScrapers) {
       const searchParams = {
-        title,
-        polishTitle,
+        title: polishTitle || title,
+        polishTitle: polishTitle || title,
+        originalTitle: effectiveCtx.originalTitle || (details && (details.original_title || details.original_name)) || title,
         year,
         type: effectiveMediaType,
         season: effectiveSeason != null ? parseInt(effectiveSeason, 10) : null,

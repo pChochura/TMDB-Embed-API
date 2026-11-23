@@ -123,21 +123,40 @@ async function apiSearch(query, { timeout = 6000, axiosInstance = axios } = {}) 
  */
 async function searchBajeczki24(params = {}, options = {}) {
   const { timeout = 6000, axiosInstance = axios, isKidsOrAnimation = false } = options;
-  const rawTitle = params.title || params.polishTitle || '';
-  if (!rawTitle) return [];
+  const primaryTitle = params.polishTitle || params.title || '';
+  if (!primaryTitle) return [];
 
-  const query = cleanColonTitle(rawTitle);
+  const query = cleanColonTitle(primaryTitle);
   const mediaType = (params.type === 'tv' || params.type === 'series') ? 'tv' : 'movie';
 
   try {
-    const data = await apiSearch(query, { timeout, axiosInstance });
-    const allMatches = parseSearchResponse(data);
-    const typeMatches = allMatches.filter((item) => item.type === mediaType);
+    let data = await apiSearch(query, { timeout, axiosInstance });
+    let allMatches = parseSearchResponse(data);
+    let typeMatches = allMatches.filter((item) => item.type === mediaType);
 
-    const matches = pickMatches(typeMatches, {
+    let matches = pickMatches(typeMatches, {
       title: query,
       year: params.year ? String(params.year) : undefined
     });
+
+    // Fallback: If no matches found with Polish title, try original/English title
+    const altTitle = cleanColonTitle(params.originalTitle || params.title || '');
+    if (matches.length === 0 && altTitle && altTitle.toLowerCase() !== query.toLowerCase()) {
+      try {
+        const altData = await apiSearch(altTitle, { timeout, axiosInstance });
+        const altAllMatches = parseSearchResponse(altData);
+        const altTypeMatches = altAllMatches.filter((item) => item.type === mediaType);
+        const altMatches = pickMatches(altTypeMatches, {
+          title: altTitle,
+          year: params.year ? String(params.year) : undefined
+        });
+        if (altMatches.length > 0) {
+          matches = altMatches;
+        }
+      } catch {
+        // ignore fallback error
+      }
+    }
 
     if (matches.length === 0) return [];
 

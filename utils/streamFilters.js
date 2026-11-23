@@ -156,12 +156,7 @@ function detectStreamLanguages(s) {
     const inside = b.replace(/\[|\]/g, '').toLowerCase();
     for (const [canon, aliases] of Object.entries(LANGUAGE_ALIASES)) {
       if (canon === 'multi') continue;
-      if (aliases.some(a => {
-        if (a.length <= 2) {
-          return new RegExp(`(^|[^a-z])${a}([^a-z]|$)`, 'i').test(inside);
-        }
-        return inside.includes(a);
-      })) {
+      if (aliases.some(a => new RegExp(`(^|[^a-z])${a}([^a-z]|$)`, 'i').test(inside))) {
         langs.add(canon);
       }
     }
@@ -200,10 +195,10 @@ function detectStreamLanguages(s) {
   }
 
   if (langs.size === 0) {
-    return { langs: isMulti ? ['multi'] : ['unknown'], isMulti };
+    return { langs: isMulti ? ['multi'] : ['unknown'], isMulti, isPolishProvider: s.provider === 'polish' };
   }
 
-  return { langs: Array.from(langs), isMulti };
+  return { langs: Array.from(langs), isMulti, isPolishProvider: s.provider === 'polish' };
 }
 
 function streamMatchesAllowed(streamInfo, allowedCanons) {
@@ -237,6 +232,9 @@ function streamMatchesAllowed(streamInfo, allowedCanons) {
   // If only one language is detected and it is marked multi/dual (e.g. "Dual YG", "Multi"),
   // then the second audio track is unknown/foreign, so multi must be explicitly allowed!
   if (isMulti && !allowedCanons.has('multi')) {
+    if (streamInfo.isPolishProvider && allowedCanons.has('pl')) {
+      return true;
+    }
     const knownAllowed = langs.filter(l => allowedCanons.has(l));
     if (knownAllowed.length < 2) {
       return false;
