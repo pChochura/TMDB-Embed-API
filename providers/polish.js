@@ -273,6 +273,36 @@ function parseCDASearchResults(html, isKidsOrAnimation = false) {
 }
 
 /**
+ * Resolve direct HLS m3u8 stream from CDA video page
+ */
+async function resolveCdaStreamUrl(embedUrl, { timeout = 4000, axiosInstance = axios } = {}) {
+  if (!embedUrl || typeof embedUrl !== 'string') return embedUrl;
+  const idMatch = embedUrl.match(/\/(?:620x368|video)\/([a-zA-Z0-9]+)/);
+  if (!idMatch) return embedUrl;
+  const videoId = idMatch[1];
+  try {
+    const res = await axiosInstance.get(`https://www.cda.pl/video/${videoId}`, {
+      headers: {
+        'User-Agent': DEFAULT_UA,
+        'Referer': 'https://www.cda.pl/'
+      },
+      timeout
+    });
+    if (!res || !res.data) return embedUrl;
+    const match = res.data.match(/player_data='([^']+)'/);
+    if (!match) return embedUrl;
+    const data = JSON.parse(match[1]);
+    const m3u8 = data?.video?.manifest_apple;
+    if (m3u8 && typeof m3u8 === 'string' && m3u8.startsWith('http')) {
+      return m3u8;
+    }
+    return embedUrl;
+  } catch {
+    return embedUrl;
+  }
+}
+
+/**
  * Scrape CDA for search query
  */
 async function scrapeCDA(query, options = {}) {
@@ -740,8 +770,26 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       return rankB - rankA;
     });
 
-    console.log(`[Polish] Found ${combined.length} stream(s) for ${title || polishTitle}`);
-    return combined.slice(0, 15);
+    const topStreams = combined.slice(0, 15);
+
+    // Resolve direct HLS manifest URLs for CDA streams so native players (ExoPlayer, etc.) can play them
+    await Promise.all(
+      topStreams.map(async (s) => {
+        if (s.name === 'Polish [CDA]' && s.url && s.url.includes('cda.pl')) {
+          try {
+            const directUrl = await resolveCdaStreamUrl(s.url, { timeout: 3500, axiosInstance });
+            if (directUrl && directUrl !== s.url) {
+              s.url = directUrl;
+            }
+          } catch {
+            // keep embed fallback
+          }
+        }
+      })
+    );
+
+    console.log(`[Polish] Found ${topStreams.length} stream(s) for ${title || polishTitle}`);
+    return topStreams;
   } catch (err) {
     console.error(`[Polish] Scrape error for TMDB ID ${effectiveTmdbId}:`, err.message);
     return [];
@@ -750,6 +798,7 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
 
 module.exports = {
   getPolishStreams,
+  resolveCdaStreamUrl,
   detectAudioTag,
   detectQuality,
   cleanTitle,

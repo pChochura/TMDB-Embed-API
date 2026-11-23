@@ -22,7 +22,7 @@ const {
   mapPremiumsmartVideos,
   searchPremiumsmart
 } = require('../providers/polish/premiumsmart');
-const { getPolishStreams } = require('../providers/polish');
+const { getPolishStreams, resolveCdaStreamUrl } = require('../providers/polish');
 
 test('polishMatcher cleanColonTitle, normalizePolish, and matchesQuery operate correctly', () => {
   // 1. cleanColonTitle
@@ -334,4 +334,25 @@ test('getPolishStreams respects ctx.language and localized ctx.title from query 
   assert.ok(streams.length > 0);
   assert.ok(executedQueries.some(q => q.includes('Kraina lodu')), 'Queries should use localized Polish title');
   assert.equal(streams[0].url, 'https://vider.info/embed/video/kraina123');
+});
+
+test('resolveCdaStreamUrl extracts direct manifest_apple HLS m3u8 playlist', async () => {
+  const mockHtml = `
+    <html>
+      <div id="mediaplayer123" player_data='{"video":{"manifest_apple":"https://vcze202.cda.pl/abc/123.m3u8"}}'></div>
+    </html>
+  `;
+  const mockAxios = {
+    get: async () => ({ data: mockHtml })
+  };
+
+  const resolved = await resolveCdaStreamUrl('https://ebd.cda.pl/620x368/123', { axiosInstance: mockAxios });
+  assert.equal(resolved, 'https://vcze202.cda.pl/abc/123.m3u8');
+
+  // Fallback when player_data is missing
+  const fallbackAxios = {
+    get: async () => ({ data: '<html><div>No player</div></html>' })
+  };
+  const fallback = await resolveCdaStreamUrl('https://ebd.cda.pl/620x368/999', { axiosInstance: fallbackAxios });
+  assert.equal(fallback, 'https://ebd.cda.pl/620x368/999');
 });
