@@ -2,12 +2,24 @@
 (function(){
 async function fetchConfig(){
 	const r = await fetch('/api/config');
-	if(!r.ok) throw new Error('Failed to fetch config');
+	if(!r.ok) {
+		if (r.status === 401) {
+			window.location.href = '/';
+			return null;
+		}
+		throw new Error('Failed to fetch config');
+	}
 	return r.json();
 }
 async function fetchProviders(){
 	const r = await fetch('/api/providers');
-	if(!r.ok) throw new Error('Failed to fetch providers');
+	if(!r.ok) {
+		if (r.status === 401) {
+			window.location.href = '/';
+			return null;
+		}
+		throw new Error('Failed to fetch providers');
+	}
 	return r.json();
 }
 

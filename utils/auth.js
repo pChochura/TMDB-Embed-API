@@ -81,7 +81,7 @@ function updatePassword(username, newPassword){
 }
 
 // Session issuance & validation
-const SESSION_SECRET = crypto.randomBytes(32); // ephemeral; restart invalidates sessions
+const SESSION_SECRET = process.env.SESSION_SECRET || process.env.API_SECRET_KEY || 'tmdb-embed-api-stable-session-secret-2026';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 
 function base64url(input){

@@ -94,6 +94,10 @@ const API_SECRET_KEY = process.env.API_SECRET_KEY || "";
 
 function requireApiKey(req, res, next) {
   if (!API_SECRET_KEY) return next();
+
+  // Allow authenticated admin web sessions
+  if (getSession(req)) return next();
+
   const authHeader = req.headers['authorization'];
   const incomingKey = req.headers['x-api-key'] || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null) || req.query?.apiKey || req.query?.api_key;
   if (incomingKey === API_SECRET_KEY) return next();
