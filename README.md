@@ -296,8 +296,23 @@ The API supports a plugin system. Drop a new provider file in the `providers/` f
 - `zxcstreams` - ZXCStreams streams (multi-server backend, dynamic domain discovery)
 - `cinezo` - Cinezo player streams (browser required; disabled by default)
 - `hexa` - Hexa player streams (browser required; disabled by default)
+- `stremiobridge` - Stremio Addon Bridge (connects external Stremio HTTP addons via `STREMIO_BRIDGE_URLS` or `STREMIO_POLISH_BRIDGE_URLS`)
+- `polish` - Polish hosters & scrapers (CDA.pl, Vider, TVP VOD, Filman, and Polish Stremio bridge) with automatic kids/family dubbing priority
 
-Providers that rely on title resolution against TMDB (`castletv`, `hdghartv`, `onetouchtv`, `zxcstreams`, `vaplayer`, `netmirror`) require at least one TMDB API key configured.
+Providers that rely on title resolution against TMDB (`castletv`, `hdghartv`, `onetouchtv`, `zxcstreams`, `vaplayer`, `netmirror`, `polish`) require at least one TMDB API key configured.
+
+#### 🇵🇱 Polish Sources & Kids' Movie Dubbing
+The `polish` provider automatically adapts its scraper queries and audio ranking based on TMDB metadata:
+* **Kids & Animation Detection**: Detects TMDB genres (Animation `16`, Family `10751`, Kids `10762`) or context flags.
+* **Dubbing Priority**: Automatically searches for `[PL Dubbing]` / `Dubbing PL` first for children's movies and cartoons (e.g. Disney, Pixar, *Psi Patrol*), ranking `[PL Dubbing]` ahead of `[PL Lektor]`. For standard live-action titles, `[PL Lektor]` remains top priority.
+* **Multi-Scraper Pipeline**: Integrates high-value, clean-API Polish sources inspired by open-source scrapers:
+  * **Bajeczki24.pl**: Dedicated Polish children's animations and cartoons via direct Meilisearch API with Byse player embeds.
+  * **Obejrzyj.to**: High-precision IMDb ID/TMDB ID and title matching from bootstrap metadata, resolving multi-hoster embeds (Filemoon, vShare, Streamtape).
+  * **Premiumsmart.eu**: JSON REST API for movies and series with full video stream extraction.
+  * **CDA.pl & Vider.info**: Query-based community video search with premium and pagination filtering.
+  * **TVP VOD**: Polish public broadcast cartoons and fairy tales (*Reksio*, *Bolek i Lolek*).
+  * **Filman**: Host aggregator parsing.
+* **Stremio Polish Bridge**: Point `STREMIO_POLISH_BRIDGE_URLS` in `.env` to community Stremio addons (e.g., CDA addons or Polish Debrid scrapers) to seamlessly merge cached Polish dubbed releases.
 
 Cinezo and Hexa use a headless Chromium browser to detect successful HLS or MP4
 playback requests. Enable them in the provider settings or with

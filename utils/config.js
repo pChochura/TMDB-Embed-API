@@ -148,6 +148,11 @@ function normalizeConfig(base) {
   cfg.stremioBridgeUrls = parseBridgeUrls(rawBridgeUrls);
   delete cfg.STREMIO_BRIDGE_URLS;
 
+  // Polish Stremio HTTP Addon Bridge URLs support
+  const rawPolishBridgeUrls = cfg.polishStremioBridgeUrls ?? cfg.STREMIO_POLISH_BRIDGE_URLS ?? null;
+  cfg.polishStremioBridgeUrls = parseBridgeUrls(rawPolishBridgeUrls);
+  delete cfg.STREMIO_POLISH_BRIDGE_URLS;
+
   // TMDB multi-key support: allow tmdbApiKeys (array) or legacy single tmdbApiKey
   if (cfg.tmdbApiKeys && !Array.isArray(cfg.tmdbApiKeys)) {
     if (typeof cfg.tmdbApiKeys === 'string') {

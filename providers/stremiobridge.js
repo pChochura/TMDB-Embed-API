@@ -2,14 +2,18 @@ const axios = require('axios');
 const { config } = require('../utils/config');
 const { resolveImdbId } = require('../utils/tmdb');
 
-function getBridgeUrls(ctx = {}) {
-  const ctxUrls = ctx?.bridgeUrls || ctx?.stremioBridgeUrls;
+function getBridgeUrls(ctx = {}, language = null) {
+  const isPl = language === 'pl' || ctx?.language === 'pl' || ctx?.isPolish;
+  const ctxUrls = ctx?.bridgeUrls || ctx?.stremioBridgeUrls || (isPl ? ctx?.polishBridgeUrls : null);
+  const polishConfigUrls = isPl && config && Array.isArray(config.polishStremioBridgeUrls) && config.polishStremioBridgeUrls.length > 0
+    ? config.polishStremioBridgeUrls
+    : null;
   const configUrls = (config && Array.isArray(config.stremioBridgeUrls) && config.stremioBridgeUrls.length > 0)
     ? config.stremioBridgeUrls
     : (config && typeof config.stremioBridgeUrls === 'string' && config.stremioBridgeUrls.trim().length > 0)
       ? config.stremioBridgeUrls
       : null;
-  const raw = ctxUrls || configUrls || process.env.STREMIO_BRIDGE_URLS;
+  const raw = ctxUrls || polishConfigUrls || (isPl && process.env.STREMIO_POLISH_BRIDGE_URLS) || configUrls || process.env.STREMIO_BRIDGE_URLS;
   if (!raw) return [];
 
   let list = [];

@@ -1,7 +1,13 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { config } = require('../utils/config');
 const { getDetails, getPolishTitle } = require('../utils/tmdb');
 const { scoreCandidate } = require('../utils/titleMatch');
+const { getStremioBridgeStreams } = require('./stremiobridge');
+const { searchBajeczki24 } = require('./polish/bajeczki24');
+const { searchObejrzyj } = require('./polish/obejrzyj');
+const { searchPremiumsmart } = require('./polish/premiumsmart');
+const { cleanColonTitle, matchesQuery, pickMatches } = require('../utils/polishMatcher');
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -15,12 +21,44 @@ const QUALITY_RANKS = {
 };
 
 /**
+ * Detect whether the target title is children's, family, or animated content
+ */
+function isAnimationOrKidsContent({ details, ctx = {} }) {
+  if (ctx.isAnimation || ctx.isKids || ctx.isFamily) return true;
+
+  const rawGenres = [
+    ...(Array.isArray(ctx.genres) ? ctx.genres : []),
+    ...(details && Array.isArray(details.genres) ? details.genres : []),
+    ...(details && Array.isArray(details.genre_ids) ? details.genre_ids : [])
+  ];
+
+  // TMDB IDs: 16 (Animation), 10751 (Family), 10762 (Kids)
+  const KIDS_GENRE_IDS = new Set([16, 10751, 10762]);
+  for (const g of rawGenres) {
+    if (typeof g === 'number' && KIDS_GENRE_IDS.has(g)) return true;
+    if (g && typeof g === 'object') {
+      if (KIDS_GENRE_IDS.has(g.id)) return true;
+      if (typeof g.name === 'string' && /animation|family|kids|animacja|familijny|dzieci|bajka/i.test(g.name)) return true;
+    }
+    if (typeof g === 'string') {
+      if (/^\d+$/.test(g) && KIDS_GENRE_IDS.has(parseInt(g, 10))) return true;
+      if (/animation|family|kids|animacja|familijny|dzieci|bajka/i.test(g)) return true;
+    }
+  }
+
+  const title = (details && (details.title || details.name)) || ctx.title || '';
+  if (/\b(animowany|bajka|bajki|dla dzieci)\b/i.test(title)) return true;
+
+  return false;
+}
+
+/**
  * Detect Polish audio tag for stream identification
  * Returns '[PL Lektor]', '[PL Napisy]', or '[PL Dubbing]'
  */
-function detectAudioTag(text = '') {
+function detectAudioTag(text = '', isKidsOrAnimation = false) {
   const str = String(text).toLowerCase();
-  if (/\b(dubbing|dub|pl-dubbing|pl dubbing|dubbing pl)\b/i.test(str)) {
+  if (/\b(dubbing|dub|pl-dubbing|pl dubbing|dubbing pl|polski dubbing|dubb)\b/i.test(str)) {
     return '[PL Dubbing]';
   }
   if (/\b(napisy|sub|subbed|pl-napisy|pl napisy|napisy pl|pl sub|napisy-pl)\b/i.test(str)) {
@@ -29,7 +67,29 @@ function detectAudioTag(text = '') {
   if (/\b(lektor|lekt|pl-lektor|pl lektor|lektor pl|pl-lekt|pl lekt)\b/i.test(str)) {
     return '[PL Lektor]';
   }
+  if (isKidsOrAnimation) {
+    return '[PL Dubbing]';
+  }
   return '[PL Lektor]';
+}
+
+/**
+ * Rank audio type depending on whether content is kids/animation (Dubbing first)
+ * or general/live-action (Lektor first)
+ */
+function getAudioRank(title = '', isKidsOrAnimation = false) {
+  const str = String(title);
+  if (isKidsOrAnimation) {
+    if (str.includes('[PL Dubbing]')) return 3;
+    if (str.includes('[PL Lektor]')) return 2;
+    if (str.includes('[PL Napisy]')) return 1;
+    return 0;
+  } else {
+    if (str.includes('[PL Lektor]')) return 3;
+    if (str.includes('[PL Dubbing]')) return 2;
+    if (str.includes('[PL Napisy]')) return 1;
+    return 0;
+  }
 }
 
 /**
@@ -70,32 +130,66 @@ function cleanTitle(title = '') {
 /**
  * Build search queries for Polish scrapers based on metadata
  */
-function buildSearchQueries({ title, polishTitle, year, isTv, season, episode }) {
+function buildSearchQueries({ title, polishTitle, year, isTv, season, episode, isAnimationOrKids = false }) {
   const queries = new Set();
   const epSuffix = isTv && season != null && episode != null
     ? `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`
     : null;
 
   if (isTv && epSuffix) {
-    if (polishTitle) {
-      queries.add(`${polishTitle} ${epSuffix} Lektor`);
-      queries.add(`${polishTitle} ${epSuffix}`);
-    }
-    if (title && title !== polishTitle) {
-      queries.add(`${title} ${epSuffix} Lektor PL`);
-      queries.add(`${title} ${epSuffix}`);
+    if (isAnimationOrKids) {
+      if (polishTitle) {
+        queries.add(`${polishTitle} ${epSuffix} Dubbing PL`);
+        queries.add(`${polishTitle} ${epSuffix} Dubbing`);
+        queries.add(`${polishTitle} ${epSuffix}`);
+      }
+      if (title && title !== polishTitle) {
+        queries.add(`${title} ${epSuffix} Dubbing PL`);
+        queries.add(`${title} ${epSuffix} Dubbing`);
+        queries.add(`${title} ${epSuffix}`);
+      }
+      if (polishTitle) {
+        queries.add(`${polishTitle} ${epSuffix} Lektor`);
+      }
+    } else {
+      if (polishTitle) {
+        queries.add(`${polishTitle} ${epSuffix} Lektor`);
+        queries.add(`${polishTitle} ${epSuffix}`);
+      }
+      if (title && title !== polishTitle) {
+        queries.add(`${title} ${epSuffix} Lektor PL`);
+        queries.add(`${title} ${epSuffix}`);
+      }
     }
   } else {
-    if (polishTitle) {
-      queries.add(`${polishTitle} Lektor PL`);
-      if (year) queries.add(`${polishTitle} ${year} Lektor`);
-      queries.add(`${polishTitle} Napisy PL`);
-      queries.add(`${polishTitle}`);
-    }
-    if (title && title !== polishTitle) {
-      queries.add(`${title} Lektor PL`);
-      if (year) queries.add(`${title} ${year} Lektor PL`);
-      queries.add(`${title} Napisy PL`);
+    if (isAnimationOrKids) {
+      if (polishTitle) {
+        queries.add(`${polishTitle} Dubbing PL`);
+        if (year) queries.add(`${polishTitle} ${year} Dubbing PL`);
+        queries.add(`${polishTitle} Dubbing`);
+        queries.add(`${polishTitle}`);
+      }
+      if (title && title !== polishTitle) {
+        queries.add(`${title} Dubbing PL`);
+        if (year) queries.add(`${title} ${year} Dubbing PL`);
+        queries.add(`${title} Dubbing`);
+      }
+      if (polishTitle) {
+        queries.add(`${polishTitle} Lektor PL`);
+        queries.add(`${polishTitle} Napisy PL`);
+      }
+    } else {
+      if (polishTitle) {
+        queries.add(`${polishTitle} Lektor PL`);
+        if (year) queries.add(`${polishTitle} ${year} Lektor`);
+        queries.add(`${polishTitle} Napisy PL`);
+        queries.add(`${polishTitle}`);
+      }
+      if (title && title !== polishTitle) {
+        queries.add(`${title} Lektor PL`);
+        if (year) queries.add(`${title} ${year} Lektor PL`);
+        queries.add(`${title} Napisy PL`);
+      }
     }
   }
 
@@ -105,7 +199,7 @@ function buildSearchQueries({ title, polishTitle, year, isTv, season, episode })
 /**
  * Parse CDA search result HTML and extract streams
  */
-function parseCDASearchResults(html) {
+function parseCDASearchResults(html, isKidsOrAnimation = false) {
   if (!html || typeof html !== 'string') return [];
   const $ = cheerio.load(html);
   const streams = [];
@@ -114,14 +208,14 @@ function parseCDASearchResults(html) {
   $('a[href*="/video/"]').each((_, elem) => {
     try {
       const href = $(elem).attr('href') || '';
-      // Immediately skip premium /vfilm links
-      if (href.includes('/vfilm')) return;
+      // Immediately skip premium /vfilm links and pagination /video/show links
+      if (href.includes('/vfilm') || href.includes('/video/show')) return;
 
       const idMatch = href.match(/\/video\/([a-zA-Z0-9]+)/);
       if (!idMatch) return;
 
       const videoId = idMatch[1];
-      if (seenIds.has(videoId)) return;
+      if (videoId === 'show' || seenIds.has(videoId)) return;
 
       const container = $(elem).closest('.elem-rts, .video-clip, div');
 
@@ -155,7 +249,7 @@ function parseCDASearchResults(html) {
 
       const qualityBadge = container.find('.quality, .hd-badge, span[class*="quality"]').text() || '';
       const quality = detectQuality(`${qualityBadge} ${fullText}`);
-      const tag = detectAudioTag(fullText);
+      const tag = detectAudioTag(fullText, isKidsOrAnimation);
       const cleaned = cleanTitle(rawTitle) || `Wideo ${videoId}`;
 
       streams.push({
@@ -182,7 +276,7 @@ function parseCDASearchResults(html) {
  * Scrape CDA for search query
  */
 async function scrapeCDA(query, options = {}) {
-  const { axiosInstance = axios, timeout = 6000 } = options;
+  const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = false } = options;
   const searchUrl = `https://www.cda.pl/info/${encodeURIComponent(query)}`;
   try {
     const res = await axiosInstance.get(searchUrl, {
@@ -195,7 +289,7 @@ async function scrapeCDA(query, options = {}) {
       responseType: 'text'
     });
     if (!res || !res.data) return [];
-    return parseCDASearchResults(res.data);
+    return parseCDASearchResults(res.data, isKidsOrAnimation);
   } catch (err) {
     console.warn(`[Polish/CDA] Search error for "${query}":`, err.message);
     return [];
@@ -205,7 +299,7 @@ async function scrapeCDA(query, options = {}) {
 /**
  * Parse Vider search result HTML and extract streams
  */
-function parseViderSearchResults(html) {
+function parseViderSearchResults(html, isKidsOrAnimation = false) {
   if (!html || typeof html !== 'string') return [];
   const $ = cheerio.load(html);
   const streams = [];
@@ -227,7 +321,7 @@ function parseViderSearchResults(html) {
       const fullText = `${rawTitle} ${extraText}`;
 
       const quality = detectQuality(fullText);
-      const tag = detectAudioTag(fullText);
+      const tag = detectAudioTag(fullText, isKidsOrAnimation);
       const cleaned = cleanTitle(rawTitle) || `Wideo ${videoId}`;
       const durationSec = parseDurationText(extraText);
 
@@ -255,7 +349,7 @@ function parseViderSearchResults(html) {
  * Scrape Vider for search query
  */
 async function scrapeVider(query, options = {}) {
-  const { axiosInstance = axios, timeout = 6000 } = options;
+  const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = false } = options;
   const searchUrl = `https://vider.info/search?q=${encodeURIComponent(query)}`;
   try {
     const res = await axiosInstance.get(searchUrl, {
@@ -268,7 +362,7 @@ async function scrapeVider(query, options = {}) {
       responseType: 'text'
     });
     if (!res || !res.data) return [];
-    return parseViderSearchResults(res.data);
+    return parseViderSearchResults(res.data, isKidsOrAnimation);
   } catch (err) {
     console.warn(`[Polish/Vider] Search error for "${query}":`, err.message);
     return [];
@@ -278,7 +372,7 @@ async function scrapeVider(query, options = {}) {
 /**
  * Parse and resolve Filman / Obejrzyj aggregator results
  */
-function parseFilmanObejrzyjResults(html, hoster = 'vShare') {
+function parseFilmanObejrzyjResults(html, hoster = 'vShare', isKidsOrAnimation = false) {
   if (!html || typeof html !== 'string') return [];
   const $ = cheerio.load(html);
   const streams = [];
@@ -289,7 +383,7 @@ function parseFilmanObejrzyjResults(html, hoster = 'vShare') {
       const href = $(elem).attr('href') || '';
       if (!href) return;
 
-      const tag = detectAudioTag(rawTitle);
+      const tag = detectAudioTag(rawTitle, isKidsOrAnimation);
       const quality = detectQuality(rawTitle);
       const cleaned = cleanTitle(rawTitle) || `Film (${hoster})`;
 
@@ -310,6 +404,87 @@ function parseFilmanObejrzyjResults(html, hoster = 'vShare') {
   });
 
   return streams;
+}
+
+/**
+ * Scrape Filman aggregator for search query
+ */
+async function scrapeFilman(query, options = {}) {
+  const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = false } = options;
+  const searchUrl = `https://filman.cc/item?q=${encodeURIComponent(query)}`;
+  try {
+    const res = await axiosInstance.get(searchUrl, {
+      headers: {
+        'User-Agent': DEFAULT_UA,
+        'Referer': 'https://filman.cc/',
+        'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8'
+      },
+      timeout: timeout,
+      responseType: 'text'
+    });
+    if (!res || !res.data) return [];
+    return parseFilmanObejrzyjResults(res.data, 'Filman', isKidsOrAnimation);
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
+ * Parse and resolve TVP VOD results (e.g. for classic Polish kids' animations)
+ */
+function parseTVPResults(data, isKidsOrAnimation = true) {
+  if (!data) return [];
+  const items = Array.isArray(data) ? data : (data.items || data.results || data.products || data.data || []);
+  const streams = [];
+
+  for (const item of items) {
+    if (!item) continue;
+    const title = item.title || item.name || '';
+    const id = item.id || item.external_uid || item.productId;
+    if (!id) continue;
+
+    const quality = item.quality || '1080p';
+    const tag = detectAudioTag(title, isKidsOrAnimation);
+    const cleaned = cleanTitle(title) || `TVP Video ${id}`;
+    const url = item.video_url || item.url || `https://vod.tvp.pl/video/${id}`;
+
+    streams.push({
+      name: 'Polish [TVP VOD]',
+      title: `${tag} ${cleaned} - ${quality}`,
+      url: url,
+      quality: quality,
+      provider: 'polish',
+      duration: item.duration || null,
+      headers: {
+        'User-Agent': DEFAULT_UA,
+        'Referer': 'https://vod.tvp.pl/'
+      }
+    });
+  }
+
+  return streams;
+}
+
+/**
+ * Scrape TVP VOD public catalogue for Polish kids / animations
+ */
+async function scrapeTVP(query, options = {}) {
+  const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = true } = options;
+  const searchUrl = `https://vod.tvp.pl/api/products/vods/search?query=${encodeURIComponent(query)}&platform=BROWSER&lang=pl`;
+  try {
+    const res = await axiosInstance.get(searchUrl, {
+      headers: {
+        'User-Agent': DEFAULT_UA,
+        'Referer': 'https://vod.tvp.pl/',
+        'Accept': 'application/json, text/plain, */*'
+      },
+      timeout: timeout
+    });
+    if (!res || !res.data) return [];
+    return parseTVPResults(res.data, isKidsOrAnimation);
+  } catch (err) {
+    return [];
+  }
 }
 
 /**
@@ -379,6 +554,8 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       return [];
     }
 
+    const isKidsOrAnimation = isAnimationOrKidsContent({ details, ctx: effectiveCtx });
+
     const year = (details && (details.release_date || details.first_air_date)
       ? parseInt((details.release_date || details.first_air_date).slice(0, 4), 10)
       : null) || effectiveCtx.year || null;
@@ -389,23 +566,60 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       year,
       isTv,
       season: effectiveSeason != null ? parseInt(effectiveSeason, 10) : null,
-      episode: effectiveEpisode != null ? parseInt(effectiveEpisode, 10) : null
+      episode: effectiveEpisode != null ? parseInt(effectiveEpisode, 10) : null,
+      isAnimationOrKids: isKidsOrAnimation
     });
 
-    console.log(`[Polish] Searching streams with queries: ${searchQueries.slice(0, 3).join(', ')}`);
+    console.log(`[Polish] Searching streams (animation/kids: ${isKidsOrAnimation}) with queries: ${searchQueries.slice(0, 3).join(', ')}`);
 
-    const scrapers = effectiveCtx.scrapers || [scrapeCDA, scrapeVider];
+    const hasCustomScrapers = Array.isArray(effectiveCtx.scrapers);
+    const scrapers = effectiveCtx.scrapers || [scrapeCDA, scrapeVider, scrapeTVP, scrapeFilman];
     const timeout = effectiveCtx.timeout || 6000;
     const axiosInstance = effectiveCtx.axiosInstance || axios;
 
     const scrapeTasks = [];
-    for (const query of searchQueries.slice(0, 2)) {
+    // Check top 3 search queries
+    for (const query of searchQueries.slice(0, 3)) {
       for (const scraper of scrapers) {
         scrapeTasks.push(
-          scraper(query, { timeout, axiosInstance })
+          scraper(query, { timeout, axiosInstance, isKidsOrAnimation })
             .catch(() => [])
         );
       }
+    }
+
+    // If default scrapers are active, run structured high-value scrapers
+    if (!hasCustomScrapers) {
+      const searchParams = {
+        title,
+        polishTitle,
+        year,
+        type: effectiveMediaType,
+        season: effectiveSeason != null ? parseInt(effectiveSeason, 10) : null,
+        episode: effectiveEpisode != null ? parseInt(effectiveEpisode, 10) : null,
+        tmdbId: effectiveTmdbId,
+        imdbId: effectiveCtx.imdbId || (details && details.imdb_id)
+      };
+
+      // Bajeczki24 (kids & animation authority)
+      if (isKidsOrAnimation || effectiveCtx.includeBajeczki) {
+        scrapeTasks.push(
+          searchBajeczki24(searchParams, { timeout, axiosInstance })
+            .catch(() => [])
+        );
+      }
+
+      // Obejrzyj.to (high-precision IMDb/TMDB/title search)
+      scrapeTasks.push(
+        searchObejrzyj(searchParams, { timeout, axiosInstance, isKidsOrAnimation })
+          .catch(() => [])
+      );
+
+      // Premiumsmart.eu (REST API)
+      scrapeTasks.push(
+        searchPremiumsmart(searchParams, { timeout, axiosInstance, isKidsOrAnimation })
+          .catch(() => [])
+      );
     }
 
     const targetDuration = (details && (details.runtime ? details.runtime * 60 : (details.episode_run_time && details.episode_run_time[0] * 60))) ||
@@ -453,7 +667,7 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
             }
 
             seenUrls.add(item.url);
-            const tag = detectAudioTag(item.title || '');
+            const tag = detectAudioTag(item.title || '', isKidsOrAnimation);
             const quality = item.quality || detectQuality(item.title || '');
             const fullTitle = item.title && (item.title.includes('[PL Lektor]') || item.title.includes('[PL Napisy]') || item.title.includes('[PL Dubbing]'))
               ? item.title
@@ -474,11 +688,47 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       }
     }
 
-    // Rank streams: Lektor first, then highest resolution
+    // Optional Stremio Polish bridge integration
+    const polishBridgeUrls = effectiveCtx.polishBridgeUrls ||
+      (config && config.polishStremioBridgeUrls && config.polishStremioBridgeUrls.length > 0 ? config.polishStremioBridgeUrls : null) ||
+      (process.env.STREMIO_POLISH_BRIDGE_URLS ? [process.env.STREMIO_POLISH_BRIDGE_URLS] : null);
+
+    if (polishBridgeUrls && polishBridgeUrls.length > 0) {
+      try {
+        const stremioStreams = await getStremioBridgeStreams(effectiveTmdbId, effectiveMediaType, effectiveSeason, effectiveEpisode, {
+          ...effectiveCtx,
+          bridgeUrls: polishBridgeUrls,
+          language: 'pl'
+        });
+        if (Array.isArray(stremioStreams)) {
+          for (const s of stremioStreams) {
+            if (s && s.url && !seenUrls.has(s.url)) {
+              seenUrls.add(s.url);
+              const tag = detectAudioTag(s.title || s.name || '', isKidsOrAnimation);
+              const quality = s.quality || detectQuality(s.title || s.name || '');
+              combined.push({
+                name: s.name && s.name.toLowerCase().includes('polish') ? s.name : `Polish [${s.name || 'Stremio'}]`,
+                title: s.title && (s.title.includes('[PL Lektor]') || s.title.includes('[PL Napisy]') || s.title.includes('[PL Dubbing]'))
+                  ? s.title
+                  : `${tag} ${cleanTitle(s.title || title)} - ${quality}`,
+                url: s.url,
+                quality: quality,
+                provider: 'polish',
+                headers: s.headers || { 'User-Agent': DEFAULT_UA }
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[Polish/Stremio] Bridge query error:`, err.message);
+      }
+    }
+
+    // Rank streams: Dubbing first for kids/animation; Lektor first for general movies
     combined.sort((a, b) => {
-      const aLektor = a.title.includes('[PL Lektor]') ? 1 : 0;
-      const bLektor = b.title.includes('[PL Lektor]') ? 1 : 0;
-      if (aLektor !== bLektor) return bLektor - aLektor;
+      const audioA = getAudioRank(a.title, isKidsOrAnimation);
+      const audioB = getAudioRank(b.title, isKidsOrAnimation);
+      if (audioA !== audioB) return audioB - audioA;
       const rankA = QUALITY_RANKS[a.quality] ?? 0;
       const rankB = QUALITY_RANKS[b.quality] ?? 0;
       return rankB - rankA;
@@ -497,11 +747,20 @@ module.exports = {
   detectAudioTag,
   detectQuality,
   cleanTitle,
+  cleanColonTitle,
   buildSearchQueries,
   parseCDASearchResults,
   scrapeCDA,
   parseViderSearchResults,
   scrapeVider,
   parseFilmanObejrzyjResults,
-  parseDurationText
+  scrapeFilman,
+  parseTVPResults,
+  scrapeTVP,
+  searchBajeczki24,
+  searchObejrzyj,
+  searchPremiumsmart,
+  parseDurationText,
+  isAnimationOrKidsContent,
+  getAudioRank
 };

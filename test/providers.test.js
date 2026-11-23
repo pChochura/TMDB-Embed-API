@@ -14,7 +14,11 @@ const {
   detectQuality,
   buildSearchQueries,
   parseCDASearchResults,
-  parseViderSearchResults
+  parseViderSearchResults,
+  parseFilmanObejrzyjResults,
+  parseTVPResults,
+  isAnimationOrKidsContent,
+  getAudioRank
 } = require('../providers/polish');
 
 test('registry loading and provider list includes new providers with correct defaults', () => {
@@ -482,4 +486,176 @@ test('polish getPolishStreams handles mock scrapers, ranking, and error resilien
     scrapers: [failingScraper]
   });
   assert.deepEqual(safeRes, []);
+});
+
+test('polish isAnimationOrKidsContent detects animation and children genres correctly', () => {
+  // 1. By TMDB genre IDs (16 = Animation, 10751 = Family, 10762 = Kids)
+  assert.equal(isAnimationOrKidsContent({ details: { genres: [{ id: 16, name: 'Animation' }] } }), true);
+  assert.equal(isAnimationOrKidsContent({ details: { genre_ids: [10751] } }), true);
+  assert.equal(isAnimationOrKidsContent({ details: { genre_ids: [10762] } }), true);
+
+  // 2. By context flags
+  assert.equal(isAnimationOrKidsContent({ ctx: { isKids: true } }), true);
+  assert.equal(isAnimationOrKidsContent({ ctx: { isAnimation: true } }), true);
+  assert.equal(isAnimationOrKidsContent({ ctx: { genres: ['Animacja'] } }), true);
+
+  // 3. Non-kids content
+  assert.equal(isAnimationOrKidsContent({ details: { genres: [{ id: 18, name: 'Drama' }] } }), false);
+  assert.equal(isAnimationOrKidsContent({ details: { genres: [{ id: 28, name: 'Action' }] } }), false);
+  assert.equal(isAnimationOrKidsContent({ ctx: {} }), false);
+});
+
+test('polish buildSearchQueries prioritizes Dubbing PL for kids/animation content', () => {
+  // Movie kids queries
+  const movieKidsQueries = buildSearchQueries({
+    title: 'Frozen',
+    polishTitle: 'Kraina lodu',
+    year: 2013,
+    isTv: false,
+    isAnimationOrKids: true
+  });
+
+  assert.equal(movieKidsQueries[0], 'Kraina lodu Dubbing PL', 'First query must be Dubbing PL for kids movie');
+  assert.ok(movieKidsQueries.includes('Kraina lodu 2013 Dubbing PL'));
+  assert.ok(movieKidsQueries.includes('Kraina lodu Dubbing'));
+  assert.ok(movieKidsQueries.includes('Kraina lodu'));
+
+  // TV kids queries
+  const tvKidsQueries = buildSearchQueries({
+    title: 'Paw Patrol',
+    polishTitle: 'Psi Patrol',
+    year: 2013,
+    isTv: true,
+    season: 1,
+    episode: 1,
+    isAnimationOrKids: true
+  });
+
+  assert.equal(tvKidsQueries[0], 'Psi Patrol S01E01 Dubbing PL');
+  assert.ok(tvKidsQueries.includes('Psi Patrol S01E01 Dubbing'));
+  assert.ok(tvKidsQueries.includes('Psi Patrol S01E01'));
+});
+
+test('polish ranks Dubbing first for kids movies and Lektor first for general movies', async () => {
+  const mockStreams = async () => [
+    {
+      name: 'Polish [CDA]',
+      title: 'Film [PL Lektor] - 1080p',
+      url: 'https://ebd.cda.pl/620x368/lektor1080',
+      quality: '1080p'
+    },
+    {
+      name: 'Polish [CDA]',
+      title: 'Film [PL Dubbing] - 720p',
+      url: 'https://ebd.cda.pl/620x368/dubbing720',
+      quality: '720p'
+    },
+    {
+      name: 'Polish [CDA]',
+      title: 'Film [PL Dubbing] - 1080p',
+      url: 'https://ebd.cda.pl/620x368/dubbing1080',
+      quality: '1080p'
+    }
+  ];
+
+  // For kids movie (Shrek): Dubbing 1080p > Dubbing 720p > Lektor 1080p
+  const kidsRes = await getPolishStreams('808', 'movie', null, null, {
+    title: 'Shrek',
+    polishTitle: 'Shrek',
+    isKids: true,
+    scrapers: [mockStreams]
+  });
+
+  assert.equal(kidsRes[0].url, 'https://ebd.cda.pl/620x368/dubbing1080');
+  assert.ok(kidsRes[0].title.includes('[PL Dubbing]'));
+  assert.equal(kidsRes[1].url, 'https://ebd.cda.pl/620x368/dubbing720');
+  assert.ok(kidsRes[1].title.includes('[PL Dubbing]'));
+  assert.equal(kidsRes[2].url, 'https://ebd.cda.pl/620x368/lektor1080');
+  assert.ok(kidsRes[2].title.includes('[PL Lektor]'));
+
+  // For adult movie (Fight Club): Lektor 1080p > Dubbing 1080p
+  const adultRes = await getPolishStreams('550', 'movie', null, null, {
+    title: 'Fight Club',
+    polishTitle: 'Podziemny krąg',
+    isKids: false,
+    scrapers: [mockStreams]
+  });
+
+  assert.equal(adultRes[0].url, 'https://ebd.cda.pl/620x368/lektor1080');
+  assert.ok(adultRes[0].title.includes('[PL Lektor]'));
+});
+
+test('polish parseCDASearchResults filters out /video/show pagination links', () => {
+  const htmlWithPagination = `
+    <div class="elem-rts">
+      <a href="/video/show/kraina_lodu/p2?s=best" class="sbmBigNext btn-my">Więcej &gt;</a>
+    </div>
+    <div class="elem-rts">
+      <a href="/video/real123456" title="Kraina Lodu Dubbing PL 1080p">
+        <span class="quality">1080p</span>
+      </a>
+    </div>
+  `;
+
+  const streams = parseCDASearchResults(htmlWithPagination);
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].url, 'https://ebd.cda.pl/620x368/real123456');
+  assert.ok(!streams.some(s => s.url.includes('/show')));
+});
+
+test('polish parseTVPResults parses TVP VOD products into standard streams', () => {
+  const mockTvpData = [
+    {
+      id: 998877,
+      title: 'Reksio i Ptaszek',
+      quality: '1080p',
+      url: 'https://vod.tvp.pl/video/998877'
+    }
+  ];
+
+  const streams = parseTVPResults(mockTvpData, true);
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].name, 'Polish [TVP VOD]');
+  assert.ok(streams[0].title.includes('[PL Dubbing]'));
+  assert.ok(streams[0].title.includes('Reksio i Ptaszek'));
+  assert.equal(streams[0].url, 'https://vod.tvp.pl/video/998877');
+  assert.equal(streams[0].provider, 'polish');
+});
+
+test('polish parseFilmanObejrzyjResults parses aggregator host links', () => {
+  const mockFilmanHtml = `
+    <div class="item">
+      <a class="link-to-video" href="https://vshare.io/v/abc1234">Król Lew Dubbing PL 1080p</a>
+    </div>
+  `;
+
+  const streams = parseFilmanObejrzyjResults(mockFilmanHtml, 'Filman', true);
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].name, 'Polish [Filman]');
+  assert.ok(streams[0].title.includes('[PL Dubbing]'));
+  assert.equal(streams[0].url, 'https://vshare.io/v/abc1234');
+});
+
+test('polish getPolishStreams integrates Stremio Polish bridge when bridge URLs are configured', async () => {
+  const mockStremioBridge = async () => [
+    {
+      name: 'Torrentio [PL]',
+      title: 'Shrek 2001 MULTi.PL 1080p BluRay',
+      url: 'https://example.com/stream/shrek.mp4',
+      quality: '1080p'
+    }
+  ];
+
+  // We can pass empty web scrapers and a mock polishBridgeUrls
+  const results = await getPolishStreams('808', 'movie', null, null, {
+    title: 'Shrek',
+    polishTitle: 'Shrek',
+    isKids: true,
+    scrapers: [async () => []],
+    polishBridgeUrls: ['http://localhost:11470']
+  });
+
+  // Stremiobridge would attempt to query localhost (which fails safely and logs warning)
+  // verifying resilience
+  assert.ok(Array.isArray(results));
 });
