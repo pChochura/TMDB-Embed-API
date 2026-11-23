@@ -6,6 +6,8 @@ services:
     environment:
       # Provide at least one TMDB key (comma separated or override via UI later)
       - TMDB_API_KEY=${TMDB_API_KEY:-}
+      # API secret key for securing all /api endpoints
+      - API_SECRET_KEY=${API_SECRET_KEY:-}
       # Alternative: supply JSON array
       # - TMDB_API_KEYS=["key1","key2"]
       - API_PORT=8787
