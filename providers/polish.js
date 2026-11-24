@@ -659,11 +659,13 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
         imdbId: effectiveCtx.imdbId || (details && details.imdb_id)
       };
 
-      // Bajeczki24 (movies, TV series & cartoons)
-      scrapeTasks.push(
-        searchBajeczki24(searchParams, { timeout, axiosInstance, isKidsOrAnimation })
-          .catch(() => [])
-      );
+      // Bajeczki24 is disabled because direct stream URLs cannot be scraped from its embedded player (bysesukior is gated by anti-bot Proof-of-Work)
+      if (effectiveCtx.enableBajeczki24 === true) {
+        scrapeTasks.push(
+          searchBajeczki24(searchParams, { timeout, axiosInstance, isKidsOrAnimation })
+            .catch(() => [])
+        );
+      }
 
       // Obejrzyj.to (high-precision IMDb/TMDB/title search)
       scrapeTasks.push(
