@@ -827,9 +827,13 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
     }
 
     // Optional Stremio Polish bridge integration
-    const polishBridgeUrls = effectiveCtx.polishBridgeUrls ||
+    const rawPolishBridgeUrls = effectiveCtx.polishBridgeUrls ||
       (config && config.polishStremioBridgeUrls && config.polishStremioBridgeUrls.length > 0 ? config.polishStremioBridgeUrls : null) ||
-      (process.env.STREMIO_POLISH_BRIDGE_URLS ? [process.env.STREMIO_POLISH_BRIDGE_URLS] : null);
+      (process.env.STREMIO_POLISH_BRIDGE_URLS || null);
+
+    const polishBridgeUrls = Array.isArray(rawPolishBridgeUrls)
+      ? rawPolishBridgeUrls.flatMap(u => (typeof u === 'string' ? u.split(/[\s,]+/) : u)).filter(Boolean)
+      : (typeof rawPolishBridgeUrls === 'string' ? rawPolishBridgeUrls.split(/[\s,]+/).filter(Boolean) : null);
 
     if (polishBridgeUrls && polishBridgeUrls.length > 0) {
       try {
