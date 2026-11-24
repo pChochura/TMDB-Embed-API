@@ -36,7 +36,7 @@ runcmd:
         break
       fi
     done
-  - chown -R 999:999 /mnt/postgres-data 2>/dev/null || chown -R 1000:1000 /mnt/postgres-data
+  - chown -R 70:70 /mnt/postgres-data 2>/dev/null || chown -R 999:999 /mnt/postgres-data 2>/dev/null || chown -R 1000:1000 /mnt/postgres-data
   - chmod 700 /mnt/postgres-data /mnt/postgres-data/pgdata 2>/dev/null || true
 
   # 3. Setup application directory and clone sidecars

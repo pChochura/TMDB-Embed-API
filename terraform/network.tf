@@ -84,6 +84,19 @@ resource "oci_core_security_list" "tmdb_security_list" {
       max = 443
     }
   }
+
+  # Supabase Kong API Gateway
+  ingress_security_rules {
+    protocol    = "6" # TCP
+    source      = "0.0.0.0/0"
+    description = "Supabase Kong API Gateway"
+    tcp_options {
+      min = 8000
+      max = 8000
+    }
+  }
+
+
 }
 
 # Public Subnet
