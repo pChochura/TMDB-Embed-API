@@ -14,11 +14,13 @@ services:
       - VIDEOGETTER_API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
       - VIDCORE_RESOLVER_BASE=${VIDCORE_RESOLVER_BASE:-http://vidcore:8789}
       - ENABLE_VIDCORE_PROVIDER=${ENABLE_VIDCORE_PROVIDER:-true}
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_DRIVER=${DATABASE_DRIVER:-sqlite}
+      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-/app/data/tiwi.db}
+      - DATABASE_URL=${DATABASE_URL:-}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
       - POSTGRES_DB=${POSTGRES_DB:-postgres}
-      - POSTGRES_HOST=${POSTGRES_HOST:-supabase-db}
+      - POSTGRES_HOST=${POSTGRES_HOST:-}
       - POSTGRES_PORT=5432
       - SYNC_JWT_SECRET=${SYNC_JWT_SECRET:-filman_sync_secret_key_change_me}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
@@ -26,6 +28,7 @@ services:
       - "8787:8787"
     volumes:
       - user_config_data:/app/utils/user-config.json
+      - ${SQLITE_DATA_DIR:-sqlite_data}:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/api/health || exit 1"]
@@ -51,3 +54,4 @@ services:
 
 volumes:
   user_config_data:
+  sqlite_data:

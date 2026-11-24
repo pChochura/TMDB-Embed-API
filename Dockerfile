@@ -1,5 +1,5 @@
 # ---------- Build Stage ----------
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 ARG VERSION=dev
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY db ./db
 COPY README.md ./
 
 # ---------- Runtime Stage ----------
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 ARG VERSION=dev
 WORKDIR /app
 ENV NODE_ENV=production \

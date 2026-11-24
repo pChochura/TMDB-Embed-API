@@ -96,6 +96,7 @@ function getSqliteDb() {
     }
     sqliteDb = new DatabaseSync(dbPath);
     sqliteDb.exec('PRAGMA foreign_keys = ON;');
+    sqliteDb.exec('PRAGMA journal_mode = WAL;');
   }
   return sqliteDb;
 }
