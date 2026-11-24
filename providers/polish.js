@@ -272,14 +272,21 @@ function parseCDASearchResults(html, isKidsOrAnimation = false) {
   return streams;
 }
 
+const cdaDirectCache = new Map();
+const CDA_CACHE_TTL_MS = 60 * 60 * 1000;
+
 /**
  * Resolve direct HLS m3u8 stream from CDA video page
  */
-async function resolveCdaStreamUrl(embedUrl, { timeout = 4000, axiosInstance = axios } = {}) {
+async function resolveCdaStreamUrl(embedUrl, { timeout = 2500, axiosInstance = axios } = {}) {
   if (!embedUrl || typeof embedUrl !== 'string') return embedUrl;
   const idMatch = embedUrl.match(/\/(?:620x368|video)\/([a-zA-Z0-9]+)/);
   if (!idMatch) return embedUrl;
   const videoId = idMatch[1];
+  const cached = cdaDirectCache.get(videoId);
+  if (cached && (Date.now() - cached.ts < CDA_CACHE_TTL_MS)) {
+    return cached.url;
+  }
   try {
     const res = await axiosInstance.get(`https://www.cda.pl/video/${videoId}`, {
       headers: {
@@ -294,8 +301,10 @@ async function resolveCdaStreamUrl(embedUrl, { timeout = 4000, axiosInstance = a
     const data = JSON.parse(match[1]);
     const m3u8 = data?.video?.manifest_apple;
     if (m3u8 && typeof m3u8 === 'string' && m3u8.startsWith('http')) {
+      cdaDirectCache.set(videoId, { url: m3u8, ts: Date.now() });
       return m3u8;
     }
+    cdaDirectCache.set(videoId, { url: embedUrl, ts: Date.now() });
     return embedUrl;
   } catch {
     return embedUrl;
@@ -560,24 +569,37 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
   }
 
   try {
-    let details = null;
+    let details = effectiveCtx.details || null;
     let polishTitle = effectiveCtx.polishTitle || null;
 
     if (effectiveTmdbId) {
-      try {
-        details = await getDetails(tmdbType, effectiveTmdbId, effectiveCtx.language || 'pl-PL');
-      } catch (err) {
-        console.warn(`[Polish] Could not fetch TMDB details for ${effectiveTmdbId}: ${err.message}`);
-      }
-
-      if (!polishTitle) {
-        if (effectiveCtx.language && String(effectiveCtx.language).toLowerCase().startsWith('pl') && effectiveCtx.title) {
-          polishTitle = effectiveCtx.title;
+      if (!details && !polishTitle) {
+        try {
+          const [dt, pt] = await Promise.all([
+            getDetails(tmdbType, effectiveTmdbId, effectiveCtx.language || 'pl-PL').catch(() => null),
+            (effectiveCtx.language && String(effectiveCtx.language).toLowerCase().startsWith('pl') && effectiveCtx.title)
+              ? Promise.resolve(effectiveCtx.title)
+              : getPolishTitle(tmdbType, effectiveTmdbId).catch(() => null)
+          ]);
+          details = dt;
+          polishTitle = pt;
+        } catch (err) {
+          console.warn(`[Polish] Could not fetch TMDB details for ${effectiveTmdbId}: ${err.message}`);
+        }
+      } else if (!details) {
+        try {
+          details = await getDetails(tmdbType, effectiveTmdbId, effectiveCtx.language || 'pl-PL');
+        } catch (err) {
+          console.warn(`[Polish] Could not fetch TMDB details for ${effectiveTmdbId}: ${err.message}`);
+        }
+      } else if (!polishTitle) {
+        if (effectiveCtx.language && String(effectiveCtx.language).toLowerCase().startsWith('pl') && (effectiveCtx.title || details.title)) {
+          polishTitle = effectiveCtx.title || details.title;
         } else {
           try {
             polishTitle = await getPolishTitle(tmdbType, effectiveTmdbId);
           } catch {
-            // ignore error fetching polish title
+            // ignore error
           }
         }
       }
@@ -772,18 +794,17 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
 
     const topStreams = combined.slice(0, 15);
 
-    // Resolve direct HLS manifest URLs for CDA streams so native players (ExoPlayer, etc.) can play them
+    // Resolve direct HLS manifest URLs for top CDA streams so native players (ExoPlayer, etc.) can play them
+    const cdaCandidates = topStreams.filter(s => s.name === 'Polish [CDA]' && s.url && s.url.includes('cda.pl')).slice(0, 8);
     await Promise.all(
-      topStreams.map(async (s) => {
-        if (s.name === 'Polish [CDA]' && s.url && s.url.includes('cda.pl')) {
-          try {
-            const directUrl = await resolveCdaStreamUrl(s.url, { timeout: 3500, axiosInstance });
-            if (directUrl && directUrl !== s.url) {
-              s.url = directUrl;
-            }
-          } catch {
-            // keep embed fallback
+      cdaCandidates.map(async (s) => {
+        try {
+          const directUrl = await resolveCdaStreamUrl(s.url, { timeout: 2500, axiosInstance });
+          if (directUrl && directUrl !== s.url) {
+            s.url = directUrl;
           }
+        } catch {
+          // keep embed fallback
         }
       })
     );

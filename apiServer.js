@@ -397,13 +397,11 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
   try {
     metrics.streamRequests++;
     const tmdbType = type === 'movie' ? 'movie' : 'tv';
-    let tmdbDetails = null;
-    try {
-      tmdbDetails = await getDetails(tmdbType, tmdbId, clientLang);
-    } catch {
-      // ignore TMDB details error
-    }
-    const imdbId = await resolveImdbId(tmdbType, tmdbId); if (imdbId) metrics.tmdbToImdbLookups++;
+    const [tmdbDetails, imdbId] = await Promise.all([
+      getDetails(tmdbType, tmdbId, clientLang).catch(() => null),
+      resolveImdbId(tmdbType, tmdbId).catch(() => null)
+    ]);
+    if (imdbId) metrics.tmdbToImdbLookups++;
     const expectedYear = tmdbDetails?.release_date
       ? parseInt(tmdbDetails.release_date.slice(0, 4), 10)
       : tmdbDetails?.first_air_date
@@ -416,7 +414,10 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
     const originalTitle = tmdbDetails?.original_title || tmdbDetails?.original_name || null;
 
     if (disconnected) return;
-    const selectedProviders = (config.defaultProviders.length ? config.defaultProviders : listProviders().map(p=>p.name));
+    let selectedProviders = (config.defaultProviders.length ? [...config.defaultProviders] : listProviders().map(p=>p.name));
+    if (selectedProviders.includes('polish')) {
+      selectedProviders = ['polish', ...selectedProviders.filter(p => p !== 'polish')];
+    }
     const providerTimings = {};
     let streamedCount = 0;
     if (streaming) sendEvent('start', { tmdbId, imdbId });
@@ -439,6 +440,7 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
           year: expectedYear,
           runtime: expectedRuntime,
           language: clientLang,
+          details: tmdbDetails,
           filters:{}
         });
         providerTimings[name] = Date.now()-t0;
@@ -471,6 +473,11 @@ app.get('/api/streams/:type/:tmdbId', async (req,res) => {
     if (shouldValidate) {
       streams = await validateStreams(streams, { filterInvalid: true, expectedRuntimeMinutes: expectedRuntime });
     }
+    streams.sort((a, b) => {
+      const aPolish = (a.provider === 'polish' || (a.name && /polish/i.test(a.name))) ? 1 : 0;
+      const bPolish = (b.provider === 'polish' || (b.name && /polish/i.test(b.name))) ? 1 : 0;
+      return bPolish - aPolish;
+    });
     metrics.streamsReturned += streams.length;
     res.json({ success:true, tmdbId, imdbId, count: streams.length, providerTimings, streams });
   } catch (e) {
