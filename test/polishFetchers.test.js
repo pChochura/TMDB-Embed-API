@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  deburrPolish,
   cleanColonTitle,
   normalizePolish,
   matchesQuery,
@@ -22,7 +23,7 @@ const {
   mapPremiumsmartVideos,
   searchPremiumsmart
 } = require('../providers/polish/premiumsmart');
-const { getPolishStreams, resolveCdaStreamUrl } = require('../providers/polish');
+const { getPolishStreams, resolveCdaStreamUrl, scrapeCDA, scrapeVider, parseViderSearchResults } = require('../providers/polish');
 
 test('polishMatcher cleanColonTitle, normalizePolish, and matchesQuery operate correctly', () => {
   // 1. cleanColonTitle
@@ -355,4 +356,98 @@ test('resolveCdaStreamUrl extracts direct manifest_apple HLS m3u8 playlist', asy
   };
   const fallback = await resolveCdaStreamUrl('https://ebd.cda.pl/620x368/999', { axiosInstance: fallbackAxios });
   assert.equal(fallback, 'https://ebd.cda.pl/620x368/999');
+});
+
+test('deburrPolish strips Polish diacritics while preserving words and casing', () => {
+  assert.equal(deburrPolish('Kamień'), 'Kamien');
+  assert.equal(deburrPolish('Chłopi'), 'Chlopi');
+  assert.equal(deburrPolish('Żądło'), 'Zadlo');
+  assert.equal(deburrPolish('Świętojańska'), 'Swietojanska');
+  assert.equal(deburrPolish('Wiedźmin 3: Dziki Gon'), 'Wiedzmin 3: Dziki Gon');
+});
+
+test('scrapeCDA deburrs Polish diacritics in the search URL to avoid redirect loops', async () => {
+  let requestedUrl = null;
+  const mockAxios = {
+    get: async (url) => {
+      requestedUrl = url;
+      return { data: '<html><div>Empty</div></html>' };
+    }
+  };
+
+  await scrapeCDA('Harry Potter i Kamień Filozoficzny', { axiosInstance: mockAxios });
+  assert.ok(requestedUrl);
+  assert.ok(requestedUrl.includes('Kamien'), 'URL should contain Kamien instead of non-ASCII Kamień');
+  assert.ok(!requestedUrl.includes('%C5%84'), 'URL should not contain percent-encoded Polish diacritic');
+});
+
+test('parseViderSearchResults parses both JSON response and HTML markup', () => {
+  // 1. JSON payload from POST /search/get
+  const mockJson = {
+    response: {
+      data_files: {
+        data: [
+          {
+            id: '12345',
+            id_url: 'shrek3abc',
+            name: 'Shrek Trzeci (2007) Dubbing PL 1080p',
+            duration: '1:32:48'
+          }
+        ]
+      }
+    }
+  };
+
+  const jsonStreams = parseViderSearchResults(mockJson, true);
+  assert.equal(jsonStreams.length, 1);
+  assert.equal(jsonStreams[0].name, 'Polish [Vider]');
+  assert.ok(jsonStreams[0].title.includes('[PL Dubbing]'));
+  assert.equal(jsonStreams[0].quality, '1080p');
+  assert.equal(jsonStreams[0].duration, 5568);
+  assert.equal(jsonStreams[0].url, 'https://vider.info/embed/video/shrek3abc');
+
+  // 2. HTML markup fallback
+  const mockHtml = `
+    <div class="video-item">
+      <a href="/video/shrek4xyz" title="Shrek Forever After 2010 Dubbing PL">Shrek Forever</a>
+      <span class="time">1:33:10</span>
+    </div>
+  `;
+  const htmlStreams = parseViderSearchResults(mockHtml, true);
+  assert.equal(htmlStreams.length, 1);
+  assert.equal(htmlStreams[0].name, 'Polish [Vider]');
+  assert.equal(htmlStreams[0].url, 'https://vider.info/embed/video/shrek4xyz');
+});
+
+test('scrapeVider queries JSON endpoint and falls back gracefully', async () => {
+  let postCalled = false;
+  let postPayload = null;
+  const mockAxios = {
+    post: async (url, data) => {
+      postCalled = true;
+      postPayload = data;
+      return {
+        data: {
+          response: {
+            data_files: {
+              data: [
+                {
+                  id: '999',
+                  id_url: 'viderTestId',
+                  name: 'Testowy Film Dubbing PL',
+                  duration: '01:30:00'
+                }
+              ]
+            }
+          }
+        }
+      };
+    }
+  };
+
+  const streams = await scrapeVider('Kiler: Dwójka', { axiosInstance: mockAxios });
+  assert.ok(postCalled);
+  assert.equal(postPayload.search_phrase, 'Kiler Dwojka');
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].url, 'https://vider.info/embed/video/viderTestId');
 });

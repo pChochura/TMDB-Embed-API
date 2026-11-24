@@ -7,7 +7,7 @@ const { getStremioBridgeStreams } = require('./stremiobridge');
 const { searchBajeczki24 } = require('./polish/bajeczki24');
 const { searchObejrzyj } = require('./polish/obejrzyj');
 const { searchPremiumsmart } = require('./polish/premiumsmart');
-const { cleanColonTitle, matchesQuery, pickMatches } = require('../utils/polishMatcher');
+const { deburrPolish, cleanColonTitle, matchesQuery, pickMatches } = require('../utils/polishMatcher');
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -316,7 +316,8 @@ async function resolveCdaStreamUrl(embedUrl, { timeout = 2500, axiosInstance = a
  */
 async function scrapeCDA(query, options = {}) {
   const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = false } = options;
-  const cleanQuery = String(query).replace(/[:]/g, ' ').replace(/\s+/g, ' ').trim();
+  const deburred = deburrPolish(String(query));
+  const cleanQuery = deburred.replace(/[:]/g, ' ').replace(/\s+/g, ' ').trim();
   const searchUrl = `https://www.cda.pl/info/${encodeURIComponent(cleanQuery)}`;
   try {
     const res = await axiosInstance.get(searchUrl, {
@@ -337,11 +338,58 @@ async function scrapeCDA(query, options = {}) {
 }
 
 /**
- * Parse Vider search result HTML and extract streams
+ * Parse Vider search result (JSON or HTML) and extract streams
  */
-function parseViderSearchResults(html, isKidsOrAnimation = false) {
-  if (!html || typeof html !== 'string') return [];
-  const $ = cheerio.load(html);
+function parseViderSearchResults(dataOrHtml, isKidsOrAnimation = false) {
+  if (!dataOrHtml) return [];
+
+  // 1. JSON payload support (from POST /search/get)
+  let rawData = dataOrHtml;
+  if (typeof dataOrHtml === 'string' && dataOrHtml.trim().startsWith('{')) {
+    try {
+      rawData = JSON.parse(dataOrHtml);
+    } catch {
+      // treat as HTML
+    }
+  }
+
+  if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+    const files = rawData?.response?.data_files?.data || rawData?.data_files?.data || rawData?.items || [];
+    if (Array.isArray(files) && files.length > 0) {
+      const streams = [];
+      const seen = new Set();
+      for (const f of files) {
+        if (!f) continue;
+        const videoId = f.id_url || f.id;
+        if (!videoId || seen.has(videoId)) continue;
+        seen.add(videoId);
+
+        const rawTitle = f.name || `Wideo ${videoId}`;
+        const quality = detectQuality(rawTitle);
+        const tag = detectAudioTag(rawTitle, isKidsOrAnimation);
+        const cleaned = cleanTitle(rawTitle);
+        const durationSec = parseDurationText(f.duration);
+
+        streams.push({
+          name: 'Polish [Vider]',
+          title: `${tag} ${cleaned} - ${quality}`,
+          url: `https://vider.info/embed/video/${videoId}`,
+          quality: quality,
+          provider: 'polish',
+          duration: durationSec || null,
+          headers: {
+            'User-Agent': DEFAULT_UA,
+            'Referer': 'https://vider.info/'
+          }
+        });
+      }
+      return streams;
+    }
+  }
+
+  // 2. HTML Cheerio parsing (fallback)
+  if (typeof dataOrHtml !== 'string') return [];
+  const $ = cheerio.load(dataOrHtml);
   const streams = [];
   const seenIds = new Set();
 
@@ -390,23 +438,53 @@ function parseViderSearchResults(html, isKidsOrAnimation = false) {
  */
 async function scrapeVider(query, options = {}) {
   const { axiosInstance = axios, timeout = 6000, isKidsOrAnimation = false } = options;
-  const searchUrl = `https://vider.info/search?q=${encodeURIComponent(query)}`;
+  const deburred = deburrPolish(String(query));
+  const cleanQuery = deburred.replace(/[:]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Try modern Vider JSON search endpoint first
   try {
-    const res = await axiosInstance.get(searchUrl, {
+    const res = await axiosInstance.post('https://vider.info/search/get', {
+      search_phrase: cleanQuery,
+      search_type: 'movies',
+      search_page: 0
+    }, {
+      headers: {
+        'User-Agent': DEFAULT_UA,
+        'Referer': 'https://vider.info/',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*'
+      },
+      timeout
+    });
+    if (res && res.data) {
+      const streams = parseViderSearchResults(res.data, isKidsOrAnimation);
+      if (streams.length > 0) return streams;
+    }
+  } catch (err) {
+    console.warn(`[Polish/Vider] JSON search error for "${query}":`, err.message);
+  }
+
+  // Fallback: try HTML search endpoint if available
+  try {
+    const fallbackUrl = `https://vider.info/search/all/${encodeURIComponent(cleanQuery)}`;
+    const res = await axiosInstance.get(fallbackUrl, {
       headers: {
         'User-Agent': DEFAULT_UA,
         'Referer': 'https://vider.info/',
         'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8'
       },
-      timeout: timeout,
+      timeout,
       responseType: 'text'
     });
-    if (!res || !res.data) return [];
-    return parseViderSearchResults(res.data, isKidsOrAnimation);
-  } catch (err) {
-    console.warn(`[Polish/Vider] Search error for "${query}":`, err.message);
-    return [];
+    if (res && res.data) {
+      return parseViderSearchResults(res.data, isKidsOrAnimation);
+    }
+  } catch {
+    // ignore fallback error
   }
+
+  return [];
 }
 
 /**
@@ -820,6 +898,7 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
 }
 
 module.exports = {
+  deburrPolish,
   getPolishStreams,
   resolveCdaStreamUrl,
   detectAudioTag,

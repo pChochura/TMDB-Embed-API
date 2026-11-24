@@ -8,6 +8,25 @@
  */
 
 /**
+ * Replace Polish diacritics with plain Latin equivalents while preserving casing and structure
+ */
+function deburrPolish(str = '') {
+  if (!str) return '';
+  return String(str)
+    .replace(/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/g, (c) => {
+      const map = {
+        'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n',
+        'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+        'Ą': 'A', 'Ć': 'C', 'Ę': 'E', 'Ł': 'L', 'Ń': 'N',
+        'Ó': 'O', 'Ś': 'S', 'Ź': 'Z', 'Ż': 'Z'
+      };
+      return map[c] || c;
+    })
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
  * "Title: Subtitle" -> "Title" (strips subtitle after colon for broader searching)
  */
 function cleanColonTitle(title = '') {
@@ -117,6 +136,7 @@ function pickMatches(results = [], params = {}) {
 }
 
 module.exports = {
+  deburrPolish,
   cleanColonTitle,
   normalizePolish,
   matchesQuery,
