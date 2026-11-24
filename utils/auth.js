@@ -131,9 +131,15 @@ function getSession(req){
 
 function requireAuth(req, res, next){
   const sess = getSession(req);
-  if (!sess) return res.status(401).json({ success:false, error:'AUTH_REQUIRED' });
-  req.session = sess;
-  next();
+  if (sess) {
+    req.session = sess;
+    return next();
+  }
+  if (req.user) {
+    req.session = { u: req.user };
+    return next();
+  }
+  return res.status(401).json({ success:false, error:'AUTH_REQUIRED' });
 }
 
 module.exports = {

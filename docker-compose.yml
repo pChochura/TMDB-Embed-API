@@ -1,48 +1,31 @@
-version: '3.9'
 services:
   tmdb-embed-api:
     build: .
     container_name: tmdb-embed-api
     environment:
-      # Provide at least one TMDB key (comma separated or override via UI later)
       - TMDB_API_KEY=${TMDB_API_KEY:-}
-      # API secret key for securing all /api endpoints
       - API_SECRET_KEY=${API_SECRET_KEY:-}
-      # Alternative: supply JSON array
-      # - TMDB_API_KEYS=["key1","key2"]
       - API_PORT=8787
       - BIND_HOST=0.0.0.0
-      # FebBox cookies (comma separated) if you want Showbox immediately functional
       - FEBBOX_COOKIES=${FEBBOX_COOKIES:-}
-      # Stremio HTTP bridge sidecars (comma-separated base URLs e.g. http://webstreamr:51546,http://cinepro-core:3000/stremio)
       - STREMIO_BRIDGE_URLS=${STREMIO_BRIDGE_URLS:-}
-      # VideoGetter sidecar microservice
       - VIDEOGETTER_API_BASE=${VIDEOGETTER_API_BASE:-http://videogetter:8088}
       - ENABLE_VIDEOGETTER_PROVIDER=${ENABLE_VIDEOGETTER_PROVIDER:-true}
       - VIDEOGETTER_API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
-      # VidCore sidecar microservice
       - VIDCORE_RESOLVER_BASE=${VIDCORE_RESOLVER_BASE:-http://vidcore:8789}
       - ENABLE_VIDCORE_PROVIDER=${ENABLE_VIDCORE_PROVIDER:-true}
-      # PostgreSQL database connection for Auth & Sync API
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-tmdb_sync}
+      - DATABASE_URL=${DATABASE_URL}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-tmdb_sync}
-      - POSTGRES_HOST=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - POSTGRES_HOST=${POSTGRES_HOST:-supabase-db}
       - POSTGRES_PORT=5432
       - SYNC_JWT_SECRET=${SYNC_JWT_SECRET:-filman_sync_secret_key_change_me}
-      # Admin UI password (if omitted, falls back to utils/auth-users.json default 'change-me')
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     ports:
       - "8787:8787"
     volumes:
-      # Persist runtime overrides (created by the admin UI)
       - user_config_data:/app/utils/user-config.json
-      # Allow restart trigger file (optional; stored in container FS)
-      # - restart_marker:/app/restart.trigger
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/api/health || exit 1"]
@@ -51,76 +34,20 @@ services:
       start_period: 20s
       retries: 3
 
-  # Optional sidecar: Webstreamr (Stremio HTTP Addon Bridge)
-  # webstreamr:
-  #   image: webstreamr/webstreamr:latest
-  #   container_name: webstreamr
-  #   restart: unless-stopped
-  #   pull_policy: always
-  #   ports:
-  #     - "51546:51546"
-  #   environment:
-  #     - TMDB_ACCESS_TOKEN=${TMDB_ACCESS_TOKEN:-}
-  #     - CACHE_DIR=/tmp
-  #   volumes:
-  #     - /tmp:/tmp
-
-  # Optional sidecar: CinePro Core (Stremio HTTP Addon Bridge)
-  # cinepro-core:
-  #   image: ghcr.io/cinepro-org/core:latest
-  #   container_name: cinepro-core
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     - TMDB_API_KEY=${TMDB_API_KEY:-}
-  #     - STREMIO_ADDON=true
-
-  # VideoGetter Sidecar (Go microservice)
   videogetter:
     build: ../api.videogetter
     container_name: videogetter
     restart: unless-stopped
-    ports:
-      - "8088:8088"
     environment:
       - PORT=8088
       - API_KEY=${VIDEOGETTER_API_KEY:-lakshya9310081539@}
 
-  # VidCore Sidecar (Node/TS resolver & HLS proxy)
   vidcore:
     build: ../vidcore-io-stream-resolver
     container_name: vidcore
     restart: unless-stopped
-    ports:
-      - "8789:8789"
     environment:
       - PORT=8789
 
-
-  # PostgreSQL database for Auth & Preferences Sync
-  postgres:
-    image: postgres:16-alpine
-    container_name: tmdb-postgres
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-tmdb_sync}
-      - PGDATA=/var/lib/postgresql/data/pgdata
-    volumes:
-      - ${POSTGRES_DATA_DIR:-postgres_data}:/var/lib/postgresql/data
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-tmdb_sync}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
 volumes:
   user_config_data:
-  postgres_data:
-  # restart_marker:

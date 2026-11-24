@@ -89,29 +89,59 @@ setImmediate(()=>console.log('[diagnostic] post-start setImmediate fired'));
 app.use(cors());
 app.use(express.json());
 
-// API Key Authentication Middleware
+// Global Authentication Middleware (API Key or HTTP Basic Auth)
 const API_SECRET_KEY = process.env.API_SECRET_KEY || "";
 
-function requireApiKey(req, res, next) {
-  if (!API_SECRET_KEY) return next();
-
-  // Allow authenticated admin web sessions
-  if (getSession(req)) return next();
-
-  const authHeader = req.headers['authorization'];
-  const incomingKey = req.headers['x-api-key'] || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null) || req.query?.apiKey || req.query?.api_key;
-  if (incomingKey === API_SECRET_KEY) return next();
-
-  // Allow local loopback (internal container healthchecks and local monitoring)
+function requireAuthentication(req, res, next) {
+  // 1. Allow local loopback (internal container healthchecks & monitoring)
   const clientIp = req.ip || req.socket?.remoteAddress;
-  if (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1') {
+  if (clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "::ffff:127.0.0.1") {
     return next();
   }
 
-  return res.status(401).json({ success: false, error: 'UNAUTHORIZED', message: 'Valid API key required' });
+  // 2. API Key header / bearer / query
+  const authHeader = req.headers["authorization"];
+  const incomingKey = req.headers["x-api-key"] ||
+    (authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null) ||
+    req.query?.apiKey ||
+    req.query?.api_key;
+  if (API_SECRET_KEY && incomingKey === API_SECRET_KEY) {
+    return next();
+  }
+
+  // 3. Existing admin web session cookie
+  const sess = getSession(req);
+  if (sess) {
+    req.user = sess.u;
+    return next();
+  }
+
+  // 4. HTTP Basic Auth (admin / ADMIN_PASSWORD)
+  if (authHeader && authHeader.startsWith("Basic ")) {
+    try {
+      const b64 = authHeader.slice(6).trim();
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      const colonIdx = decoded.indexOf(":");
+      if (colonIdx > 0) {
+        const u = decoded.slice(0, colonIdx);
+        const p = decoded.slice(colonIdx + 1);
+        if (authenticate(u, p)) {
+          req.user = u;
+          return next();
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 5. Unauthenticated -> 401 with HTTP Auth challenge
+  res.setHeader("WWW-Authenticate", 'Basic realm="TMDB Embed API"');
+  if (req.path.startsWith("/api") || req.headers.accept?.includes("application/json")) {
+    return res.status(401).json({ success: false, error: "UNAUTHORIZED", message: "Valid API key or HTTP Auth required" });
+  }
+  return res.status(401).send("Unauthorized: API key or HTTP Auth required\n");
 }
 
-app.use('/api', requireApiKey);
+app.use(requireAuthentication);
 
 // Auth & Preferences Sync API
 app.use('/api', syncRouter);
@@ -148,8 +178,9 @@ app.post('/auth/logout', (req,res) => {
 
 app.get('/auth/session', (req,res) => {
   const sess = getSession(req);
-  if (!sess) return res.json({ authenticated:false });
-  res.json({ authenticated:true, username: sess.u });
+  if (sess) return res.json({ authenticated:true, username: sess.u });
+  if (req.user) return res.json({ authenticated:true, username: req.user });
+  return res.json({ authenticated:false });
 });
 
 app.post('/auth/change-password', (req,res) => {
