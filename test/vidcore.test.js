@@ -154,5 +154,17 @@ test('vidcore maps upstream mock server responses with header propagation', asyn
 
   } finally {
     await new Promise(resolve => mockServer.close(resolve));
+    delete process.env.VIDCORE_RESOLVER_BASE;
   }
 });
+
+test('vidcore resolves in-process when VIDCORE_RESOLVER_BASE is unset', async () => {
+  delete process.env.VIDCORE_RESOLVER_BASE;
+  const { resolveVidcoreInProcess } = require('../providers/vidcore/resolver');
+  assert.equal(typeof resolveVidcoreInProcess, 'function');
+
+  // getVidcoreStreams calls resolveVidcoreInProcess when VIDCORE_RESOLVER_BASE is not set
+  const streams = await getVidcoreStreams('invalid_tmdb_id_for_testing', 'movie');
+  assert.ok(Array.isArray(streams));
+});
+

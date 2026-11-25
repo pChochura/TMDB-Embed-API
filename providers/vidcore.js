@@ -1,12 +1,17 @@
 const axios = require('axios');
 const { config } = require('../utils/config');
+const { resolveVidcoreInProcess } = require('./vidcore/resolver');
 
 /**
  * Resolves base URL dynamically from context, user-config, or environment.
+ * If unset or 'internal', returns null indicating in-process resolution.
  */
 function getBaseUrl(ctx = {}) {
   const custom = ctx?.vidcoreResolverBase || (config && config.vidcoreResolverBase) || process.env.VIDCORE_RESOLVER_BASE;
-  return (custom || 'http://127.0.0.1:8789').replace(/\/+$/, '');
+  if (!custom || custom === 'internal') {
+    return null;
+  }
+  return custom.replace(/\/+$/, '');
 }
 
 /**
@@ -79,8 +84,7 @@ function parseResolverPayload(rawData) {
 }
 
 /**
- * Resolves VidCore streams via titan717/vidcore-io-stream-resolver
- * and normalizes them for TMDB-Embed-API.
+ * Resolves VidCore streams either natively in-process or via configured upstream base URL.
  *
  * @param {string|number|Object} tmdbId TMDB ID or context object
  * @param {'movie'|'series'|'tv'} [mediaType='movie']
@@ -108,11 +112,28 @@ async function getVidcoreStreams(tmdbId, mediaType = 'movie', season = null, epi
     return [];
   }
 
+  const baseUrl = getBaseUrl(effectiveCtx);
+
+  // If no external base URL is configured, resolve natively inside this application!
+  if (!baseUrl) {
+    try {
+      return await resolveVidcoreInProcess(
+        effectiveTmdbId,
+        effectiveMediaType,
+        effectiveSeason,
+        effectiveEpisode
+      );
+    } catch (err) {
+      console.error(`[VidCore] In-process extraction failed for ${effectiveMediaType} ${effectiveTmdbId}:`, err.message);
+      return [];
+    }
+  }
+
+  // Fallback to HTTP resolver if an external URL is explicitly supplied
   try {
     const isMovie = effectiveMediaType === 'movie';
     const s = effectiveSeason || 1;
     const e = effectiveEpisode || 1;
-    const baseUrl = getBaseUrl(effectiveCtx);
 
     const defaultHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -188,4 +209,4 @@ async function getVidcoreStreams(tmdbId, mediaType = 'movie', season = null, epi
   }
 }
 
-module.exports = { getVidcoreStreams, getBaseUrl, parseResolverPayload };
+module.exports = { getVidcoreStreams, getBaseUrl, parseResolverPayload, resolveVidcoreInProcess };

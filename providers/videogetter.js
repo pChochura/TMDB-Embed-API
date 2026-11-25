@@ -1,12 +1,17 @@
 const axios = require('axios');
 const { config } = require('../utils/config');
+const { resolveVideogetterInProcess } = require('./videogetter/resolver');
 
 /**
  * Resolves base URL dynamically from context, user-config, or environment.
+ * Returns null if unset or 'internal', signaling in-process resolution.
  */
 function getBaseUrl(ctx = {}) {
   const custom = ctx?.videogetterApiBase || (config && config.videogetterApiBase) || process.env.VIDEOGETTER_API_BASE;
-  return (custom || 'http://127.0.0.1:8088').replace(/\/+$/, '');
+  if (!custom || custom === 'internal') {
+    return null;
+  }
+  return custom.replace(/\/+$/, '');
 }
 
 function getAuthHeaders(ctx = {}) {
@@ -24,7 +29,8 @@ function getAuthHeaders(ctx = {}) {
 }
 
 /**
- * Fetches and normalizes streams from api.videogetter for TMDB-Embed-API.
+ * Fetches and normalizes streams from VideoGetter for TMDB-Embed-API.
+ * Runs in-process by default, or cascades to configured upstream base URL.
  *
  * @param {string|number|Object} tmdbId TMDB ID or context object
  * @param {'movie'|'series'|'tv'} [mediaType='movie']
@@ -52,12 +58,29 @@ async function getVideogetterStreams(tmdbId, mediaType = 'movie', season = null,
     return [];
   }
 
+  const baseUrl = getBaseUrl(effectiveCtx);
+
+  // If no external sidecar base URL is specified, resolve natively inside the app!
+  if (!baseUrl) {
+    try {
+      return await resolveVideogetterInProcess(
+        effectiveTmdbId,
+        effectiveMediaType,
+        effectiveSeason,
+        effectiveEpisode
+      );
+    } catch (err) {
+      console.error(`[VideoGetter] In-process extraction failed for ${effectiveMediaType} ${effectiveTmdbId}:`, err.message);
+      return [];
+    }
+  }
+
+  // Fallback to HTTP resolver if an external URL is explicitly supplied
   try {
     const isMovie = effectiveMediaType === 'movie';
     const s = effectiveSeason || 1;
     const e = effectiveEpisode || 1;
 
-    const baseUrl = getBaseUrl(effectiveCtx);
     const apiPrefix = baseUrl.endsWith('/api') ? '' : '/api';
     const endpoint = isMovie
       ? `${baseUrl}${apiPrefix}/movie/${effectiveTmdbId}`
@@ -122,4 +145,4 @@ async function getVideogetterStreams(tmdbId, mediaType = 'movie', season = null,
   }
 }
 
-module.exports = { getVideogetterStreams, getBaseUrl };
+module.exports = { getVideogetterStreams, getBaseUrl, getAuthHeaders, resolveVideogetterInProcess };

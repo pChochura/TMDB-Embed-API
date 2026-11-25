@@ -121,5 +121,25 @@ test('videogetter maps upstream mock server responses accurately', async () => {
 
   } finally {
     await new Promise(resolve => mockServer.close(resolve));
+    delete process.env.VIDEOGETTER_API_BASE;
   }
 });
+
+test('videogetter resolves in-process when VIDEOGETTER_API_BASE is unset', async () => {
+  delete process.env.VIDEOGETTER_API_BASE;
+
+  const { findMediaRecord } = require('../providers/videogetter/tier1_vidara');
+  const { resolveVideogetterInProcess } = require('../providers/videogetter/resolver');
+
+  // Verify local dataset lookup
+  const record = findMediaRecord(262838, 'tv', 1, 1);
+  assert.ok(record, 'record 262838 S1E1 should be found in local vidara.json');
+  assert.equal(record.title, "India's Got Latent");
+  assert.ok(record.play);
+
+  // In-process resolution executes without needing an external HTTP server
+  assert.equal(typeof resolveVideogetterInProcess, 'function');
+  const streams = await getVideogetterStreams('nonexistent_id_for_testing', 'movie');
+  assert.ok(Array.isArray(streams));
+});
+

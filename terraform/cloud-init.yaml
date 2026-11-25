@@ -41,16 +41,12 @@ runcmd:
   - chown -R 70:70 /mnt/postgres-data/supabase-data /mnt/postgres-data/pgdata 2>/dev/null || true
   - chmod 700 /mnt/postgres-data/supabase-data /mnt/postgres-data/pgdata 2>/dev/null || true
 
-  # 3. Setup application directory and clone sidecars
+  # 3. Setup application directory
   - mkdir -p /home/ubuntu/app
   - git clone ${repo_url} /home/ubuntu/app
-  - git clone https://github.com/lakshya9pro2-dot/api.videogetter.git /home/ubuntu/api.videogetter
-  - git clone https://github.com/titan717/vidcore-io-stream-resolver.git /home/ubuntu/vidcore-io-stream-resolver
-  - cp /home/ubuntu/app/docker/videogetter.Dockerfile /home/ubuntu/api.videogetter/Dockerfile
-  - cp /home/ubuntu/app/docker/vidcore.Dockerfile /home/ubuntu/vidcore-io-stream-resolver/Dockerfile
   - chown -R ubuntu:ubuntu /home/ubuntu
 
-  # 4. Generate .env file with database, JWT, and sidecar microservice endpoints
+  # 4. Generate .env file with database and JWT configuration
   - echo "TMDB_API_KEY=${tmdb_api_key}" > /home/ubuntu/app/.env
   - echo "API_PORT=${api_port}" >> /home/ubuntu/app/.env
   - echo "BIND_HOST=0.0.0.0" >> /home/ubuntu/app/.env
@@ -60,9 +56,7 @@ runcmd:
   - echo "DATABASE_URL=postgresql://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}" >> /home/ubuntu/app/.env
   - echo "SYNC_JWT_SECRET=${sync_jwt_secret}" >> /home/ubuntu/app/.env
   - echo "POSTGRES_DATA_DIR=/mnt/postgres-data" >> /home/ubuntu/app/.env
-  - echo "VIDEOGETTER_API_BASE=http://videogetter:8088" >> /home/ubuntu/app/.env
   - echo "ENABLE_VIDEOGETTER_PROVIDER=true" >> /home/ubuntu/app/.env
-  - echo "VIDCORE_RESOLVER_BASE=http://vidcore:8789" >> /home/ubuntu/app/.env
   - echo "ENABLE_VIDCORE_PROVIDER=true" >> /home/ubuntu/app/.env
   - chown ubuntu:ubuntu /home/ubuntu/app/.env
 
