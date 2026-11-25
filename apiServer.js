@@ -12,6 +12,7 @@ const { applyFilters } = require('./utils/streamFilters');
 const { isFfmpegAvailable, streamRemux } = require('./utils/remux');
 const { validateStream, validateStreams } = require('./utils/streamValidator');
 const syncRouter = require('./routes/sync');
+const { router: devicesRouter } = require('./routes/devices');
 const { initDb } = require('./db');
 
 const app = express();
@@ -99,6 +100,11 @@ function requireAuthentication(req, res, next) {
     return next();
   }
 
+  // Allow sync, devices, and auth endpoints to be handled by their dedicated JWT/token middleware
+  if (req.path.startsWith('/api/sync') || req.path.startsWith('/api/devices') || req.path.startsWith('/api/auth')) {
+    return next();
+  }
+
   // 2. API Key header / bearer / query
   const authHeader = req.headers["authorization"];
   const incomingKey = req.headers["x-api-key"] ||
@@ -145,6 +151,7 @@ app.use(requireAuthentication);
 
 // Auth & Preferences Sync API
 app.use('/api', syncRouter);
+app.use('/api', devicesRouter);
 
 // --- Auth Routes (login before static serving) ---
 app.post('/auth/login', (req,res) => {
