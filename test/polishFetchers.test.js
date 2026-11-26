@@ -23,7 +23,8 @@ const {
   mapPremiumsmartVideos,
   searchPremiumsmart
 } = require('../providers/polish/premiumsmart');
-const { getPolishStreams, resolveCdaStreamUrl, scrapeCDA, scrapeVider, parseViderSearchResults } = require('../providers/polish');
+const { getPolishStreams, resolveCdaStreamUrl, resolveVidneoStreamUrl, scrapeCDA, scrapeVider, parseViderSearchResults } = require('../providers/polish');
+const { extractVidneo } = require('../utils/resolvers/vidneo');
 
 test('polishMatcher cleanColonTitle, normalizePolish, and matchesQuery operate correctly', () => {
   // 1. cleanColonTitle
@@ -260,6 +261,65 @@ test('obejrzyj searchObejrzyj resolves movie and TV video sources with mock axio
   assert.equal(streams[0].quality, '1080p');
 });
 
+test('obejrzyj searchObejrzyj resolves Vidneo embed to direct HLS m3u8 stream', async () => {
+  const mockSearchHtml = `
+    <script>
+      window.bootstrapData = {
+        "loaders": {
+          "searchPage": {
+            "results": [
+              { "id": 58844, "name": "Sparowani", "is_series": false, "tmdb_id": 508101, "year": 2019 }
+            ]
+          }
+        }
+      };
+    </script>
+  `;
+
+  const mockTitleHtml = `
+    <script>
+      window.bootstrapData = {
+        "loaders": {
+          "titlePage": {
+            "title": {
+              "videos": [
+                {
+                  "name": "Vidneo",
+                  "src": "https://vidneo.cc/e/PWpcHW7wVgO",
+                  "quality": "1080p",
+                  "language_type": "napisy_pl"
+                }
+              ]
+            }
+          }
+        }
+      };
+    </script>
+  `;
+
+  const mockVidneoRsc = `6:["$","div",null,{"className":"h-full w-full","children":["$","$L10","PWpcHW7wVgO",{"src":"/hls/cmwe9k0nc04nrqj0j6a6b90tv/master.m3u8","title":"Plus.One"}]}]`;
+
+  const mockAxios = {
+    get: async (url) => {
+      if (url.includes('/search/')) return { data: mockSearchHtml };
+      if (url.includes('vidneo.cc')) return { data: mockVidneoRsc };
+      return { data: mockTitleHtml };
+    }
+  };
+
+  const streams = await searchObejrzyj(
+    { title: 'Sparowani', polishTitle: 'Sparowani', type: 'movie', tmdbId: 508101 },
+    { axiosInstance: mockAxios }
+  );
+
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0].name, 'Polish [Vidneo]');
+  assert.ok(streams[0].title.includes('[PL Napisy]'));
+  assert.equal(streams[0].url, 'https://vidneo.cc/hls/cmwe9k0nc04nrqj0j6a6b90tv/master.m3u8');
+  assert.equal(streams[0].quality, '1080p');
+  assert.equal(streams[0].headers.Referer, 'https://vidneo.cc/');
+});
+
 test('premiumsmart maps videos and searchPremiumsmart queries API with mock axiosInstance', async () => {
   const mockVideos = [
     {
@@ -356,6 +416,48 @@ test('resolveCdaStreamUrl extracts direct manifest_apple HLS m3u8 playlist', asy
   };
   const fallback = await resolveCdaStreamUrl('https://ebd.cda.pl/620x368/999', { axiosInstance: fallbackAxios });
   assert.equal(fallback, 'https://ebd.cda.pl/620x368/999');
+});
+
+test('resolveVidneoStreamUrl extracts direct HLS master.m3u8 and handles fallbacks', async () => {
+  const mockRsc = `6:["$","div",null,{"className":"h-full w-full","children":["$","$L10","slug123",{"src":"/hls/test123hash/master.m3u8","title":"Test Movie"}]}]`;
+  const mockAxios = {
+    get: async () => ({ data: mockRsc })
+  };
+
+  // 1. Resolve relative path to absolute URL
+  const resolved = await resolveVidneoStreamUrl('https://vidneo.cc/e/slug123', { axiosInstance: mockAxios });
+  assert.equal(resolved, 'https://vidneo.cc/hls/test123hash/master.m3u8');
+
+  // 2. Resolve HTML with escaped quotes
+  const mockEscapedHtml = `self.__next_f.push([1,"6:[\\"$\\",\\"div\\",null,{\\"src\\":\\"/hls/escaped456/master.m3u8\\"}]"])`;
+  const escapedAxios = {
+    get: async () => ({ data: mockEscapedHtml })
+  };
+  const resolvedEscaped = await resolveVidneoStreamUrl('https://vidneo.cc/e/slug456', { axiosInstance: escapedAxios });
+  assert.equal(resolvedEscaped, 'https://vidneo.cc/hls/escaped456/master.m3u8');
+
+  // 3. extractVidneo helper returns m3u8 and headers
+  const extracted = await extractVidneo('https://vidneo.cc/e/slug123', { axiosInstance: mockAxios });
+  assert.deepEqual(extracted, {
+    m3u8: 'https://vidneo.cc/hls/test123hash/master.m3u8',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer': 'https://vidneo.cc/'
+    }
+  });
+
+  // 4. Fallback on invalid payload or network error
+  const fallbackAxios = {
+    get: async () => ({ data: '<html><body>No video here</body></html>' })
+  };
+  const fallback = await resolveVidneoStreamUrl('https://vidneo.cc/e/slugnone', { axiosInstance: fallbackAxios });
+  assert.equal(fallback, 'https://vidneo.cc/e/slugnone');
+
+  const errorAxios = {
+    get: async () => { throw new Error('Network error'); }
+  };
+  const errFallback = await resolveVidneoStreamUrl('https://vidneo.cc/e/slugerr', { axiosInstance: errorAxios });
+  assert.equal(errFallback, 'https://vidneo.cc/e/slugerr');
 });
 
 test('deburrPolish strips Polish diacritics while preserving words and casing', () => {

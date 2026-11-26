@@ -1,6 +1,9 @@
 const kwik = require('./kwik');
+const vidneo = require('./vidneo');
 
 module.exports = {
   ...kwik,
-  kwik
+  ...vidneo,
+  kwik,
+  vidneo
 };

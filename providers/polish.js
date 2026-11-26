@@ -8,6 +8,7 @@ const { searchBajeczki24 } = require('./polish/bajeczki24');
 const { searchObejrzyj } = require('./polish/obejrzyj');
 const { searchPremiumsmart } = require('./polish/premiumsmart');
 const { deburrPolish, cleanColonTitle, matchesQuery, pickMatches } = require('../utils/polishMatcher');
+const { resolveVidneoStreamUrl } = require('../utils/resolvers/vidneo');
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -893,6 +894,25 @@ async function getPolishStreams(tmdbId, mediaType = 'movie', season = null, epis
       })
     );
 
+    // Resolve direct HLS manifest URLs for top Vidneo streams
+    const vidneoCandidates = topStreams.filter(s => s.url && (s.url.includes('vidneo.') || s.name?.toLowerCase().includes('vidneo')) && !s.url.includes('.m3u8')).slice(0, 8);
+    await Promise.all(
+      vidneoCandidates.map(async (s) => {
+        try {
+          const directUrl = await resolveVidneoStreamUrl(s.url, { timeout: 3000, axiosInstance });
+          if (directUrl && directUrl !== s.url) {
+            s.url = directUrl;
+            s.headers = {
+              'User-Agent': DEFAULT_UA,
+              'Referer': 'https://vidneo.cc/'
+            };
+          }
+        } catch {
+          // keep embed fallback
+        }
+      })
+    );
+
     console.log(`[Polish] Found ${topStreams.length} stream(s) for ${title || polishTitle}`);
     return topStreams;
   } catch (err) {
@@ -905,6 +925,7 @@ module.exports = {
   deburrPolish,
   getPolishStreams,
   resolveCdaStreamUrl,
+  resolveVidneoStreamUrl,
   detectAudioTag,
   detectQuality,
   cleanTitle,

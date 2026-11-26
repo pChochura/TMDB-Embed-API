@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { pickMatches, cleanColonTitle } = require('../../utils/polishMatcher');
+const { resolveVidneoStreamUrl } = require('../../utils/resolvers/vidneo');
 
 const BASE_URL = 'https://obejrzyj.to';
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -175,16 +176,34 @@ async function searchObejrzyj(params = {}, options = {}) {
       const quality = v.quality || '1080p';
       const hosterName = v.name || 'Obejrzyj';
 
+      let streamUrl = src;
+      let headers = {
+        'User-Agent': DEFAULT_UA,
+        'Referer': BASE_URL
+      };
+
+      if (src.includes('vidneo.') || hosterName.toLowerCase().includes('vidneo')) {
+        try {
+          const directUrl = await resolveVidneoStreamUrl(src, { timeout, axiosInstance });
+          if (directUrl && directUrl !== src) {
+            streamUrl = directUrl;
+            headers = {
+              'User-Agent': DEFAULT_UA,
+              'Referer': 'https://vidneo.cc/'
+            };
+          }
+        } catch {
+          // keep embed fallback
+        }
+      }
+
       streams.push({
         name: `Polish [${hosterName}]`,
         title: `${tag} ${matchedItem.name || query} - ${quality}`,
-        url: src,
+        url: streamUrl,
         quality: quality,
         provider: 'polish',
-        headers: {
-          'User-Agent': DEFAULT_UA,
-          'Referer': BASE_URL
-        }
+        headers
       });
     }
 
